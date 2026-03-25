@@ -14,6 +14,8 @@ Lyrics are fetched using a fallback pipeline (first synced result wins):
 
 ## Usage
 
+See `lrcfetch --help` for full command reference. Common use cases:
+
 ```bash
 # Fetch lyrics for the currently playing track
 lrcfetch fetch

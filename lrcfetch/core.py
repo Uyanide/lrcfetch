@@ -47,7 +47,7 @@ def _normalize_unsynced(lyrics: str) -> str:
 
 
 # Maps CacheStatus to the default TTL used when storing results
-_STATUS_TTL: dict[CacheStatus, int] = {
+_STATUS_TTL: dict[CacheStatus, Optional[int]] = {
     CacheStatus.SUCCESS_SYNCED: TTL_SYNCED,
     CacheStatus.SUCCESS_UNSYNCED: TTL_UNSYNCED,
     CacheStatus.NOT_FOUND: TTL_NOT_FOUND,

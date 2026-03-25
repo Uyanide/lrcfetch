@@ -12,7 +12,7 @@ from lrcfetch.mpris import get_current_track
 from lrcfetch.core import LrcManager
 
 app = typer.Typer(
-    help="LRCFetch — Fetch lyrics for tracks.",
+    help="LRCFetch — Fetch line-synced lyrics for your music player.",
     add_completion=False,
 )
 

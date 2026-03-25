@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "lrcfetch"
 version = "0.1.0"
-description = "Fetch lyrics for tracks."
+description = "Fetch line-synced lyrics for your music player."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
