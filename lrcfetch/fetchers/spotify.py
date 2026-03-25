@@ -12,6 +12,7 @@ calls within the same session.
 Requires SPOTIFY_SP_DC environment variable to be set.
 """
 
+import json
 import httpx
 import time
 import struct
@@ -31,6 +32,7 @@ from lrcfetch.config import (
     SPOTIFY_SERVER_TIME_URL,
     SPOTIFY_SECRET_URL,
     SPOTIFY_SP_DC,
+    SPOTIFY_TOKEN_CACHE_FILE,
     UA_BROWSER,
 )
 
@@ -128,16 +130,50 @@ class SpotifyFetcher(BaseFetcher):
         code = binary_code % (10**6)
         return str(code).zfill(6)
 
+    def _load_cached_token(self) -> Optional[str]:
+        """Try to load a valid token from the persistent cache file."""
+        try:
+            with open(SPOTIFY_TOKEN_CACHE_FILE, "r") as f:
+                data = json.load(f)
+            expires_ms = data.get("accessTokenExpirationTimestampMs", 0)
+            if expires_ms <= int(time.time() * 1000):
+                logger.debug("Spotify: persisted token expired")
+                return None
+            token = data.get("accessToken", "")
+            if not token:
+                return None
+            self._cached_token = token
+            self._token_expires_at = expires_ms / 1000.0
+            logger.debug("Spotify: loaded token from cache file")
+            return token
+        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+            return None
+
+    def _save_token(self, body: dict) -> None:
+        """Persist the token response to disk."""
+        try:
+            with open(SPOTIFY_TOKEN_CACHE_FILE, "w") as f:
+                json.dump(body, f)
+            logger.debug("Spotify: token saved to cache file")
+        except Exception as e:
+            logger.warning(f"Spotify: failed to write token cache: {e}")
+
     def _get_token(self) -> Optional[str]:
-        """Obtain a Spotify access token. Cached until expiry.
+        """Obtain a Spotify access token. Cached in memory and on disk.
 
         Requires SP_DC cookie (set via SPOTIFY_SP_DC env var).
         """
-        # Return cached token if still valid (with 30s safety margin)
+        # 1. Memory cache
         if self._cached_token and time.time() < self._token_expires_at - 30:
-            logger.debug("Spotify: using cached access token")
+            logger.debug("Spotify: using in-memory cached token")
             return self._cached_token
 
+        # 2. Disk cache
+        disk_token = self._load_cached_token()
+        if disk_token and time.time() < self._token_expires_at - 30:
+            return disk_token
+
+        # 3. Fetch new token
         if not SPOTIFY_SP_DC:
             logger.error(
                 "Spotify: SPOTIFY_SP_DC env var not set — "
@@ -151,23 +187,18 @@ class SpotifyFetcher(BaseFetcher):
         }
 
         with httpx.Client(headers=headers) as client:
-            # Step 1: server time
             server_time = self._get_server_time(client)
             if server_time is None:
                 return None
 
-            # Step 2: secret
             secret_data = self._get_secret(client)
             if secret_data is None:
                 return None
 
             secret, version = secret_data
-
-            # Step 3: TOTP
             totp = self._generate_totp(server_time, secret)
             logger.debug(f"Spotify: generated TOTP v{version}: {totp}")
 
-            # Step 4: exchange for token
             params = {
                 "reason": "transport",
                 "productType": "web-player",
@@ -198,7 +229,6 @@ class SpotifyFetcher(BaseFetcher):
                         "Spotify: received anonymous token — SP_DC may be invalid"
                     )
 
-                # Cache with reported expiry
                 expires_ms = body.get("accessTokenExpirationTimestampMs", 0)
                 if expires_ms and expires_ms > int(time.time() * 1000):
                     self._token_expires_at = expires_ms / 1000.0
@@ -207,6 +237,8 @@ class SpotifyFetcher(BaseFetcher):
                     self._token_expires_at = time.time() + 3600
 
                 self._cached_token = token
+                # Persist to disk (including anonymous tokens, same as Go ref)
+                self._save_token(body)
                 logger.debug("Spotify: obtained access token")
                 return token
 

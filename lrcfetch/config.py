@@ -11,6 +11,10 @@ from loguru import logger
 APP_NAME = "lrcfetch"
 APP_AUTHOR = "Uyanide"
 
+# ─── Paths ───────────────────────────────────────────────────────────
+CACHE_DIR = user_cache_dir(APP_NAME, APP_AUTHOR)
+DB_PATH = os.path.join(CACHE_DIR, "cache.db")
+
 # ─── .env loading (XDG config dir first, then project-local) ─────────
 _config_env = Path(user_config_dir(APP_NAME, APP_AUTHOR)) / ".env"
 load_dotenv(_config_env)   # ~/.config/lrcfetch/.env
@@ -37,6 +41,7 @@ SPOTIFY_SECRET_URL = (
     "/refs/heads/main/secrets/secrets.json"
 )
 SPOTIFY_SP_DC = os.environ.get("SPOTIFY_SP_DC", "")
+SPOTIFY_TOKEN_CACHE_FILE = os.path.join(CACHE_DIR, "spotify_token.json")
 
 # ─── Netease ─────────────────────────────────────────────────────────
 NETEASE_SEARCH_URL = "https://music.163.com/api/cloudsearch/pc"
@@ -52,10 +57,6 @@ UA_BROWSER = (
     "Gecko/20100101 Firefox/148.0"
 )
 UA_LRCFETCH = "LRCFetch (https://github.com/Uyanide/lrcfetch)"
-
-# ─── Paths ───────────────────────────────────────────────────────────
-CACHE_DIR = user_cache_dir(APP_NAME, APP_AUTHOR)
-DB_PATH = os.path.join(CACHE_DIR, "cache.db")
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 
