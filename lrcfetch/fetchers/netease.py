@@ -7,12 +7,12 @@ Search results are filtered by duration when the track has a known length
 to avoid returning lyrics for the wrong version of a song.
 """
 
-import re
 import httpx
 from typing import Optional
 from loguru import logger
 from lrcfetch.models import TrackMeta, LyricResult, CacheStatus
 from lrcfetch.fetchers.base import BaseFetcher
+from lrcfetch.lrc import is_synced
 from lrcfetch.config import (
     HTTP_TIMEOUT,
     TTL_NOT_FOUND,
@@ -23,32 +23,10 @@ from lrcfetch.config import (
     UA_BROWSER,
 )
 
-# Matches LRC time tags like [00:12.34] or [01:23.456]
-_LRC_TIME_TAG_RE = re.compile(r"\[\d{2}:\d{2}\.\d{2,3}\]")
-# Matches time tags that are all zeros: [00:00.00] or [00:00.000]
-_ZERO_TIME_TAG_RE = re.compile(r"^\[00:00\.0{2,3}\]")
-
 _HEADERS = {
     "User-Agent": UA_BROWSER,
     "Referer": "https://music.163.com/",
 }
-
-
-def _is_synced_lrc(text: str) -> bool:
-    """Check whether *text* contains actual LRC time tags with non-zero times.
-
-    Returns False if:
-    - No time tags at all
-    - All time tags are [00:00.00] (unsynced disguised as synced)
-    """
-    lines_with_tags = _LRC_TIME_TAG_RE.findall(text)
-    if not lines_with_tags:
-        return False
-    # Check if ALL tags are zero — if so, it's unsynced
-    for tag in lines_with_tags:
-        if not _ZERO_TIME_TAG_RE.match(tag):
-            return True  # Found at least one non-zero tag
-    return False
 
 
 class NeteaseFetcher(BaseFetcher):
@@ -186,7 +164,7 @@ class NeteaseFetcher(BaseFetcher):
                 return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
 
             # Determine sync status
-            synced = _is_synced_lrc(lrc)
+            synced = is_synced(lrc)
             status = CacheStatus.SUCCESS_SYNCED if synced else CacheStatus.SUCCESS_UNSYNCED
             logger.info(
                 f"Netease: got {status.value} lyrics for song_id={song_id} "

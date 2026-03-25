@@ -7,11 +7,11 @@ Fetch pipeline:
   4. Return the best result (synced > unsynced > None)
 """
 
-import re
 from typing import Optional
 from loguru import logger
 from lrcfetch.models import TrackMeta, LyricResult, CacheStatus
 from lrcfetch.config import TTL_SYNCED, TTL_UNSYNCED, TTL_NOT_FOUND, TTL_NETWORK_ERROR
+from lrcfetch.lrc import LRC_LINE_RE, normalize_tags
 from lrcfetch.cache import CacheEngine
 from lrcfetch.fetchers.base import BaseFetcher
 from lrcfetch.fetchers.local import LocalFetcher
@@ -19,10 +19,6 @@ from lrcfetch.fetchers.spotify import SpotifyFetcher
 from lrcfetch.fetchers.lrclib import LrclibFetcher
 from lrcfetch.fetchers.lrclib_search import LrclibSearchFetcher
 from lrcfetch.fetchers.netease import NeteaseFetcher
-
-# Matches any LRC time tag at the start of a line: [mm:ss.cc] or [mm:ss.ccc]
-_LRC_LINE_RE = re.compile(r"^\[(\d{2}:\d{2}\.\d{2,3})\]", re.MULTILINE)
-
 
 def _normalize_unsynced(lyrics: str) -> str:
     """Normalize unsynced lyrics so every line has a [00:00.00] tag.
@@ -37,11 +33,9 @@ def _normalize_unsynced(lyrics: str) -> str:
         if not stripped:
             out.append("")
             continue
-        # Strip existing time tag(s) from the beginning
-        cleaned = _LRC_LINE_RE.sub("", stripped)
-        # Could have multiple tags like [00:12.34][00:56.78]text
-        while _LRC_LINE_RE.match(cleaned):
-            cleaned = _LRC_LINE_RE.sub("", cleaned)
+        cleaned = LRC_LINE_RE.sub("", stripped)
+        while LRC_LINE_RE.match(cleaned):
+            cleaned = LRC_LINE_RE.sub("", cleaned)
         out.append(f"[00:00.00]{cleaned}")
     return "\n".join(out)
 
@@ -148,7 +142,16 @@ class LrcManager:
                 logger.debug(f"[{source}] returned None (no result)")
                 continue
 
-            # Cache the result
+            # Normalize non-standard time tags [mm:ss:cc] → [mm:ss.cc]
+            if result.lyrics:
+                result = LyricResult(
+                    status=result.status,
+                    lyrics=normalize_tags(result.lyrics),
+                    source=result.source,
+                    ttl=result.ttl,
+                )
+
+            # Cache the normalized result
             ttl = result.ttl or _STATUS_TTL.get(result.status, TTL_NOT_FOUND)
             self.cache.set(track, source, result, ttl_seconds=ttl)
 
