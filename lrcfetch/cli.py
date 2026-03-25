@@ -13,7 +13,7 @@ from lrcfetch.core import LrcManager
 
 app = typer.Typer(
     help="LRCFetch — Fetch line-synced lyrics for your music player.",
-    add_completion=False,
+    add_completion=True,
 )
 
 manager = LrcManager()
