@@ -1,0 +1,23 @@
+[build-system]
+requires      = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lrcfetch"
+version = "0.1.0"
+description = "Fetch lyrics for tracks."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "dbus-next>=0.2.3",
+    "httpx>=0.28.1",
+    "loguru>=0.7.3",
+    "mutagen>=1.47.0",
+    "platformdirs>=4.9.4",
+    "pydantic>=2.12.5",
+    "python-dotenv>=1.2.2",
+    "typer>=0.24.1",
+]
+
+[project.scripts]
+lrcfetch = "lrcfetch.cli:run"
