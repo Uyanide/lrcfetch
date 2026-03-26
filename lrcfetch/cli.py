@@ -18,13 +18,21 @@ app = typer.Typer(
 
 manager = LrcManager()
 
+# Global state set by the app callback
+_player: Optional[str] = None
+
 
 @app.callback()
 def main(
     debug: bool = typer.Option(False, "--debug", "-d", help="Enable debug logging."),
+    player: Optional[str] = typer.Option(
+        None, "--player", "-p", help="Target a specific MPRIS player using its DBus name or a portion thereof."
+    ),
 ):
+    global _player
     if debug:
         enable_debug()
+    _player = player
 
 
 # ------------------------------------------------------------------
@@ -37,9 +45,6 @@ def fetch(
     method: Optional[str] = typer.Option(
         None, "--method", help="Force a specific source (local, spotify, lrclib, lrclib-search, netease)."
     ),
-    player: Optional[str] = typer.Option(
-        None, "--player", "-p", help="Target a specific MPRIS player."
-    ),
     no_cache: bool = typer.Option(
         False, "--no-cache", help="Bypass the cache for this request."
     ),
@@ -48,7 +53,7 @@ def fetch(
     ),
 ):
     """Fetch and print lyrics for the currently playing track."""
-    track = get_current_track(player)
+    track = get_current_track(_player)
 
     if not track:
         logger.error("No active playing track found.")
@@ -134,16 +139,13 @@ def export(
     method: Optional[str] = typer.Option(
         None, "--method", help="Force a specific source."
     ),
-    player: Optional[str] = typer.Option(
-        None, "--player", "-p", help="Target a specific MPRIS player."
-    ),
     no_cache: bool = typer.Option(False, "--no-cache", help="Bypass cache."),
     overwrite: bool = typer.Option(
         False, "--overwrite", "-f", help="Overwrite existing file."
     ),
 ):
     """Export lyrics of the current track to a .lrc file."""
-    track = get_current_track(player)
+    track = get_current_track(_player)
     if not track:
         logger.error("No active playing track found.")
         raise typer.Exit(1)
@@ -207,7 +209,7 @@ def cache(
         return
 
     if clear_current:
-        track = get_current_track()
+        track = get_current_track(_player)
         if not track:
             logger.error("No active playing track found.")
             raise typer.Exit(1)
@@ -235,7 +237,7 @@ def cache(
         return
 
     if query:
-        track = get_current_track()
+        track = get_current_track(_player)
         if not track:
             logger.error("No active playing track found.")
             raise typer.Exit(1)

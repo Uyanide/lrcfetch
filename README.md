@@ -1,6 +1,6 @@
 # lrcfetch
 
-A CLI tool for fetching LRC lyrics on Linux. Automatically detects the currently playing track via MPRIS/DBus and retrieves synced or plain lyrics from multiple sources.
+A CLI tool for fetching LRC lyrics on Linux. Automatically detects the currently playing track via MPRIS/DBus and retrieves synced (or plain with all time tags set to `[00:00.00]` if failed to find any synced) lyrics from multiple sources.
 
 ## Sources
 

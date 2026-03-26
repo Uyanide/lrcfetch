@@ -7,6 +7,7 @@ Priority:
 
 import os
 from typing import Optional
+from urllib.parse import unquote
 from loguru import logger
 from lrcfetch.models import TrackMeta, LyricResult, CacheStatus
 from lrcfetch.fetchers.base import BaseFetcher
@@ -25,7 +26,7 @@ class LocalFetcher(BaseFetcher):
         if not track.is_local or not track.url:
             return None
 
-        file_path = track.url.replace("file://", "", 1)
+        file_path = unquote(track.url.replace("file://", "", 1))
         if not os.path.exists(file_path):
             logger.debug(f"Local: file does not exist: {file_path}")
             return None
