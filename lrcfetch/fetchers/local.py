@@ -1,5 +1,10 @@
-"""Local fetcher — reads lyrics from .lrc sidecar files or embedded audio metadata.
+"""
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-03-26 02:08:41
+Description: Local fetcher — reads lyrics from .lrc sidecar files or embedded audio metadata
+"""
 
+"""
 Priority:
   1. Same-directory .lrc file (e.g. /path/to/track.lrc)
   2. Embedded lyrics in audio metadata (FLAC, MP3 USLT/SYLT tags)
@@ -9,11 +14,12 @@ import os
 from typing import Optional
 from urllib.parse import unquote
 from loguru import logger
-from lrcfetch.models import TrackMeta, LyricResult, CacheStatus
-from lrcfetch.fetchers.base import BaseFetcher
-from lrcfetch.lrc import detect_sync_status
 from mutagen._file import File
 from mutagen.flac import FLAC
+
+from .base import BaseFetcher
+from ..models import TrackMeta, LyricResult
+from ..lrc import detect_sync_status
 
 
 class LocalFetcher(BaseFetcher):
@@ -56,7 +62,9 @@ class LocalFetcher(BaseFetcher):
 
                 if isinstance(audio, FLAC):
                     # FLAC stores lyrics in vorbis comment tags
-                    lyrics = (audio.get("lyrics") or audio.get("unsynclyrics") or [None])[0]
+                    lyrics = (
+                        audio.get("lyrics") or audio.get("unsynclyrics") or [None]
+                    )[0]
                 elif hasattr(audio, "tags") and audio.tags:
                     # MP3 / other: look for USLT or SYLT ID3 frames
                     for key in audio.tags.keys():

@@ -1,4 +1,8 @@
-"""CLI interface for lrcfetch."""
+"""
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-03-26 02:04:39
+Description: CLI interface
+"""
 
 import typer
 import time
@@ -6,10 +10,10 @@ from typing import Optional
 from loguru import logger
 import os
 
-from lrcfetch.config import enable_debug
-from lrcfetch.models import TrackMeta, CacheStatus
-from lrcfetch.mpris import get_current_track
-from lrcfetch.core import LrcManager
+from .config import enable_debug
+from .models import TrackMeta, CacheStatus
+from .mpris import get_current_track
+from .core import LrcManager
 
 app = typer.Typer(
     help="LRCFetch — Fetch line-synced lyrics for your music player.",
@@ -26,7 +30,10 @@ _player: Optional[str] = None
 def main(
     debug: bool = typer.Option(False, "--debug", "-d", help="Enable debug logging."),
     player: Optional[str] = typer.Option(
-        None, "--player", "-p", help="Target a specific MPRIS player using its DBus name or a portion thereof."
+        None,
+        "--player",
+        "-p",
+        help="Target a specific MPRIS player using its DBus name or a portion thereof.",
     ),
 ):
     global _player
@@ -35,15 +42,15 @@ def main(
     _player = player
 
 
-# ------------------------------------------------------------------
 # fetch
-# ------------------------------------------------------------------
 
 
 @app.command()
 def fetch(
     method: Optional[str] = typer.Option(
-        None, "--method", help="Force a specific source (local, spotify, lrclib, lrclib-search, netease)."
+        None,
+        "--method",
+        help="Force a specific source (local, spotify, lrclib, lrclib-search, netease).",
     ),
     no_cache: bool = typer.Option(
         False, "--no-cache", help="Bypass the cache for this request."
@@ -61,9 +68,7 @@ def fetch(
 
     logger.info(f"Track: {track.display_name()}")
 
-    result = manager.fetch_for_track(
-        track, force_method=method, bypass_cache=no_cache
-    )
+    result = manager.fetch_for_track(track, force_method=method, bypass_cache=no_cache)
 
     if not result or not result.lyrics:
         logger.error("No lyrics found.")
@@ -76,9 +81,7 @@ def fetch(
     print(result.lyrics)
 
 
-# ------------------------------------------------------------------
 # search
-# ------------------------------------------------------------------
 
 
 @app.command()
@@ -87,8 +90,12 @@ def search(
     artist: Optional[str] = typer.Option(None, "--artist", "-a", help="Artist name."),
     album: Optional[str] = typer.Option(None, "--album", help="Album name."),
     trackid: Optional[str] = typer.Option(None, "--trackid", help="Spotify track ID."),
-    length: Optional[int] = typer.Option(None, "--length", "-l", help="Track duration in milliseconds."),
-    url: Optional[str] = typer.Option(None, "--url", help="Local file URL (file:///...)."),
+    length: Optional[int] = typer.Option(
+        None, "--length", "-l", help="Track duration in milliseconds."
+    ),
+    url: Optional[str] = typer.Option(
+        None, "--url", help="Local file URL (file:///...)."
+    ),
     method: Optional[str] = typer.Option(
         None, "--method", help="Force a specific source."
     ),
@@ -111,9 +118,7 @@ def search(
 
     logger.info(f"Track: {track.display_name()}")
 
-    result = manager.fetch_for_track(
-        track, force_method=method, bypass_cache=no_cache
-    )
+    result = manager.fetch_for_track(track, force_method=method, bypass_cache=no_cache)
 
     if not result or not result.lyrics:
         logger.error("No lyrics found.")
@@ -126,15 +131,16 @@ def search(
     print(result.lyrics)
 
 
-# ------------------------------------------------------------------
 # export
-# ------------------------------------------------------------------
 
 
 @app.command()
 def export(
     output: Optional[str] = typer.Option(
-        None, "--output", "-o", help="Output file path (default: <Artist> - <Title>.lrc)."
+        None,
+        "--output",
+        "-o",
+        help="Output file path (default: <Artist> - <Title>.lrc).",
     ),
     method: Optional[str] = typer.Option(
         None, "--method", help="Force a specific source."
@@ -150,9 +156,7 @@ def export(
         logger.error("No active playing track found.")
         raise typer.Exit(1)
 
-    result = manager.fetch_for_track(
-        track, force_method=method, bypass_cache=no_cache
-    )
+    result = manager.fetch_for_track(track, force_method=method, bypass_cache=no_cache)
     if not result or not result.lyrics:
         logger.error("No lyrics available to export.")
         raise typer.Exit(1)
@@ -183,9 +187,7 @@ def export(
         raise typer.Exit(1)
 
 
-# ------------------------------------------------------------------
 # cache
-# ------------------------------------------------------------------
 
 
 @app.command()
@@ -302,7 +304,9 @@ def _print_cache_row(row: dict, indent: str = "") -> None:
     if expires:
         remaining = expires - now
         if remaining > 0:
-            print(f"{indent}  Expires : in {remaining // 3600}h {(remaining % 3600) // 60}m")
+            print(
+                f"{indent}  Expires : in {remaining // 3600}h {(remaining % 3600) // 60}m"
+            )
         else:
             print(f"{indent}  Expires : EXPIRED")
     else:

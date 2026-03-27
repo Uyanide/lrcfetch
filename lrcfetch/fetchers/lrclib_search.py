@@ -1,5 +1,10 @@
-"""LRCLIB search fetcher — fuzzy search via lrclib.net /api/search.
+"""
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-03-25 05:30:50
+Description: LRCLIB search fetcher — fuzzy search via lrclib.net /api/search
+"""
 
+"""
 Used when metadata is incomplete (no album or duration) but title is available.
 Selects the best match by duration when track length is known.
 """
@@ -9,9 +14,9 @@ from typing import Optional
 from loguru import logger
 from urllib.parse import urlencode
 
-from lrcfetch.models import TrackMeta, LyricResult, CacheStatus
-from lrcfetch.fetchers.base import BaseFetcher
-from lrcfetch.config import (
+from .base import BaseFetcher
+from ..models import TrackMeta, LyricResult, CacheStatus
+from ..config import (
     HTTP_TIMEOUT,
     TTL_UNSYNCED,
     TTL_NOT_FOUND,
@@ -48,7 +53,9 @@ class LrclibSearchFetcher(BaseFetcher):
 
             if resp.status_code != 200:
                 logger.error(f"LRCLIB-search: API returned {resp.status_code}")
-                return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
+                return LyricResult(
+                    status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR
+                )
 
             data = resp.json()
 
@@ -116,21 +123,38 @@ class LrclibSearchFetcher(BaseFetcher):
                 if diff > DURATION_TOLERANCE_MS:
                     continue
                 # Prefer synced over unsynced at similar duration
-                has_synced = isinstance(item.get("syncedLyrics"), str) and item["syncedLyrics"].strip()
-                best_synced = best is not None and isinstance(best.get("syncedLyrics"), str) and best["syncedLyrics"].strip()
-                if diff < best_diff or (diff == best_diff and has_synced and not best_synced):
+                has_synced = (
+                    isinstance(item.get("syncedLyrics"), str)
+                    and item["syncedLyrics"].strip()
+                )
+                best_synced = (
+                    best is not None
+                    and isinstance(best.get("syncedLyrics"), str)
+                    and best["syncedLyrics"].strip()
+                )
+                if diff < best_diff or (
+                    diff == best_diff and has_synced and not best_synced
+                ):
                     best_diff = diff
                     best = item
 
             if best is not None:
-                logger.debug(f"LRCLIB-search: selected id={best.get('id')} (diff={best_diff:.0f}ms)")
+                logger.debug(
+                    f"LRCLIB-search: selected id={best.get('id')} (diff={best_diff:.0f}ms)"
+                )
                 return best
 
-            logger.debug(f"LRCLIB-search: no candidate within {DURATION_TOLERANCE_MS}ms")
+            logger.debug(
+                f"LRCLIB-search: no candidate within {DURATION_TOLERANCE_MS}ms"
+            )
             return None
 
         # No duration — pick first with synced lyrics, or just first
         for item in candidates:
-            if isinstance(item, dict) and isinstance(item.get("syncedLyrics"), str) and item["syncedLyrics"].strip():
+            if (
+                isinstance(item, dict)
+                and isinstance(item.get("syncedLyrics"), str)
+                and item["syncedLyrics"].strip()
+            ):
                 return item
         return candidates[0] if isinstance(candidates[0], dict) else None

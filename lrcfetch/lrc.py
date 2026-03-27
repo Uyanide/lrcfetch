@@ -1,10 +1,12 @@
-"""Shared LRC time-tag utilities.
-
-Handles detection, normalization, and sync-status checks for LRC lyrics.
+"""
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-03-25 21:54:01
+Description: Shared LRC time-tag utilities
 """
 
 import re
-from lrcfetch.models import CacheStatus
+
+from .models import CacheStatus
 
 # Standard format: [mm:ss.cc] or [mm:ss.ccc]
 _STANDARD_TAG_RE = re.compile(r"\[\d{2}:\d{2}\.\d{2,3}\]")
@@ -88,4 +90,6 @@ def is_synced(text: str) -> bool:
 
 def detect_sync_status(text: str) -> CacheStatus:
     """Determine whether lyrics contain meaningful LRC time tags."""
-    return CacheStatus.SUCCESS_SYNCED if is_synced(text) else CacheStatus.SUCCESS_UNSYNCED
+    return (
+        CacheStatus.SUCCESS_SYNCED if is_synced(text) else CacheStatus.SUCCESS_UNSYNCED
+    )

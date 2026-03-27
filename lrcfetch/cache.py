@@ -1,12 +1,17 @@
-"""SQLite-based lyric cache with per-source storage and TTL expiration."""
+"""
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-03-25 10:18:03
+Description: SQLite-based lyric cache with per-source storage and TTL expiration
+"""
 
 import sqlite3
 import hashlib
 import time
 from typing import Optional
-from lrcfetch.config import DB_PATH
-from lrcfetch.models import TrackMeta, LyricResult, CacheStatus
 from loguru import logger
+
+from .config import DB_PATH
+from .models import TrackMeta, LyricResult, CacheStatus
 
 
 def _generate_key(track: TrackMeta, source: str) -> str:
@@ -64,9 +69,7 @@ class CacheEngine:
             """)
             conn.commit()
 
-    # ------------------------------------------------------------------
     # Read
-    # ------------------------------------------------------------------
 
     def get(self, track: TrackMeta, source: str) -> Optional[LyricResult]:
         """Look up a cached result for *track* from *source*.
@@ -126,9 +129,7 @@ class CacheEngine:
                 best = cached
         return best
 
-    # ------------------------------------------------------------------
     # Write
-    # ------------------------------------------------------------------
 
     def set(
         self,
@@ -171,9 +172,7 @@ class CacheEngine:
             f"[{result.status.value}, ttl={ttl_seconds}s]"
         )
 
-    # ------------------------------------------------------------------
     # Delete
-    # ------------------------------------------------------------------
 
     def clear_all(self) -> None:
         """Remove every entry from the cache."""
@@ -193,7 +192,9 @@ class CacheEngine:
             cur = conn.execute(f"DELETE FROM cache WHERE {where}", params)
             conn.commit()
         if cur.rowcount:
-            logger.info(f"Cleared {cur.rowcount} cache entries for {track.display_name()}.")
+            logger.info(
+                f"Cleared {cur.rowcount} cache entries for {track.display_name()}."
+            )
         else:
             logger.info(f"No cache entries found for {track.display_name()}.")
 
@@ -225,9 +226,7 @@ class CacheEngine:
             params.append(track.album)
         return conditions, params
 
-    # ------------------------------------------------------------------
     # Query / inspect
-    # ------------------------------------------------------------------
 
     def query_track(self, track: TrackMeta) -> list[dict]:
         """Return all cached rows for a given track (across all sources)."""
@@ -237,9 +236,12 @@ class CacheEngine:
         where = " AND ".join(conditions)
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            return [dict(r) for r in conn.execute(
-                f"SELECT * FROM cache WHERE {where}", params
-            ).fetchall()]
+            return [
+                dict(r)
+                for r in conn.execute(
+                    f"SELECT * FROM cache WHERE {where}", params
+                ).fetchall()
+            ]
 
     def query_all(self) -> list[dict]:
         """Return every row in the cache table."""

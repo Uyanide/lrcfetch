@@ -1,8 +1,13 @@
-"""Spotify fetcher — obtains synced lyrics via Spotify's internal color-lyrics API.
+"""
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-03-25 10:43:21
+Description: Spotify fetcher — obtains synced lyrics via Spotify's internal color-lyrics API.
+"""
 
-Authentication flow (mirrors spotify-lyrics Go implementation):
+"""
+Authentication flow:
   1. Fetch server time from Spotify
-  2. Fetch TOTP secret from xyloflake/spot-secrets-go
+  2. Fetch TOTP secret
   3. Generate a TOTP code and exchange it (with SP_DC cookie) for an access token
   4. Request lyrics using the access token
 
@@ -12,8 +17,8 @@ calls within the same session.
 Requires SPOTIFY_SP_DC environment variable to be set.
 """
 
-import json
 import httpx
+import json
 import time
 import struct
 import hmac
@@ -21,9 +26,9 @@ import hashlib
 from typing import Optional, Tuple
 from loguru import logger
 
-from lrcfetch.models import TrackMeta, LyricResult, CacheStatus
-from lrcfetch.fetchers.base import BaseFetcher
-from lrcfetch.config import (
+from .base import BaseFetcher
+from ..models import TrackMeta, LyricResult, CacheStatus
+from ..config import (
     HTTP_TIMEOUT,
     TTL_NOT_FOUND,
     TTL_NETWORK_ERROR,
@@ -83,7 +88,8 @@ class SpotifyFetcher(BaseFetcher):
 
             if not isinstance(data, list) or len(data) == 0:
                 logger.error(
-                    f"Spotify: unexpected secrets response (type={type(data).__name__}, len={len(data) if isinstance(data, list) else '?'})")
+                    f"Spotify: unexpected secrets response (type={type(data).__name__}, len={len(data) if isinstance(data, list) else '?'})"
+                )
                 return None
 
             last = data[-1]
@@ -210,16 +216,15 @@ class SpotifyFetcher(BaseFetcher):
             try:
                 res = client.get(SPOTIFY_TOKEN_URL, params=params, timeout=HTTP_TIMEOUT)
                 if res.status_code != 200:
-                    logger.error(
-                        f"Spotify: token request returned {res.status_code}"
-                    )
+                    logger.error(f"Spotify: token request returned {res.status_code}")
                     return None
 
                 body = res.json()
 
                 if not isinstance(body, dict) or "accessToken" not in body:
                     logger.error(
-                        f"Spotify: unexpected token response keys: {list(body.keys()) if isinstance(body, dict) else type(body).__name__}")
+                        f"Spotify: unexpected token response keys: {list(body.keys()) if isinstance(body, dict) else type(body).__name__}"
+                    )
                     return None
 
                 token = body["accessToken"]
@@ -294,9 +299,7 @@ class SpotifyFetcher(BaseFetcher):
 
                 if res.status_code == 404:
                     logger.debug(f"Spotify: 404 for trackid={track.trackid}")
-                    return LyricResult(
-                        status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND
-                    )
+                    return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
 
                 if res.status_code != 200:
                     logger.error(f"Spotify: lyrics API returned {res.status_code}")
@@ -308,7 +311,7 @@ class SpotifyFetcher(BaseFetcher):
 
             # Validate response structure
             if not isinstance(data, dict) or "lyrics" not in data:
-                logger.error(f"Spotify: unexpected lyrics response structure")
+                logger.error("Spotify: unexpected lyrics response structure")
                 return LyricResult(
                     status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR
                 )
@@ -343,11 +346,13 @@ class SpotifyFetcher(BaseFetcher):
                     lrc_lines.append(f"[00:00.00]{words}")
 
             content = "\n".join(lrc_lines)
-            status = CacheStatus.SUCCESS_SYNCED if is_synced else CacheStatus.SUCCESS_UNSYNCED
-
-            logger.info(
-                f"Spotify: got {status.value} lyrics ({len(lrc_lines)} lines)"
+            status = (
+                CacheStatus.SUCCESS_SYNCED
+                if is_synced
+                else CacheStatus.SUCCESS_UNSYNCED
             )
+
+            logger.info(f"Spotify: got {status.value} lyrics ({len(lrc_lines)} lines)")
             return LyricResult(status=status, lyrics=content, source=self.source_name)
 
         except Exception as e:

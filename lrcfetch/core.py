@@ -1,5 +1,10 @@
-"""Core orchestrator — coordinates fetchers with cache-aware fallback.
+"""
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-03-25 11:09:53
+Description: Core orchestrator — coordinates fetchers with cache-aware fallback
+"""
 
+"""
 Fetch pipeline:
   1. Check cache for each source in the fallback sequence
   2. For sources without a valid cache hit, call the fetcher
@@ -9,16 +14,18 @@ Fetch pipeline:
 
 from typing import Optional
 from loguru import logger
-from lrcfetch.models import TrackMeta, LyricResult, CacheStatus
-from lrcfetch.config import TTL_SYNCED, TTL_UNSYNCED, TTL_NOT_FOUND, TTL_NETWORK_ERROR
-from lrcfetch.lrc import LRC_LINE_RE, normalize_tags
-from lrcfetch.cache import CacheEngine
-from lrcfetch.fetchers.base import BaseFetcher
-from lrcfetch.fetchers.local import LocalFetcher
-from lrcfetch.fetchers.spotify import SpotifyFetcher
-from lrcfetch.fetchers.lrclib import LrclibFetcher
-from lrcfetch.fetchers.lrclib_search import LrclibSearchFetcher
-from lrcfetch.fetchers.netease import NeteaseFetcher
+
+from .fetchers.netease import NeteaseFetcher
+from .fetchers.lrclib_search import LrclibSearchFetcher
+from .fetchers.lrclib import LrclibFetcher
+from .fetchers.spotify import SpotifyFetcher
+from .fetchers.local import LocalFetcher
+from .fetchers.base import BaseFetcher
+from .cache import CacheEngine
+from .lrc import LRC_LINE_RE, normalize_tags
+from .config import TTL_SYNCED, TTL_UNSYNCED, TTL_NOT_FOUND, TTL_NETWORK_ERROR
+from .models import TrackMeta, LyricResult, CacheStatus
+
 
 def _normalize_unsynced(lyrics: str) -> str:
     """Normalize unsynced lyrics so every line has a [00:00.00] tag.
@@ -83,9 +90,7 @@ class LrcManager:
             sequence.append(self.fetchers["lrclib-search"])
         sequence.append(self.fetchers["netease"])
 
-        logger.debug(
-            f"Fallback sequence: {[f.source_name for f in sequence]}"
-        )
+        logger.debug(f"Fallback sequence: {[f.source_name for f in sequence]}")
         return sequence
 
     def fetch_for_track(
@@ -124,12 +129,19 @@ class LrcManager:
                         logger.info(f"[{source}] cache hit: synced lyrics")
                         return cached
                     elif cached.status == CacheStatus.SUCCESS_UNSYNCED:
-                        logger.debug(f"[{source}] cache hit: unsynced lyrics (continuing)")
+                        logger.debug(
+                            f"[{source}] cache hit: unsynced lyrics (continuing)"
+                        )
                         if best_result is None:
                             best_result = cached
                         continue  # Try next source for synced
-                    elif cached.status in (CacheStatus.NOT_FOUND, CacheStatus.NETWORK_ERROR):
-                        logger.debug(f"[{source}] cache hit: {cached.status.value}, skipping")
+                    elif cached.status in (
+                        CacheStatus.NOT_FOUND,
+                        CacheStatus.NETWORK_ERROR,
+                    ):
+                        logger.debug(
+                            f"[{source}] cache hit: {cached.status.value}, skipping"
+                        )
                         continue
             else:
                 logger.debug(f"[{source}] cache bypassed")

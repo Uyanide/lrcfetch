@@ -1,16 +1,21 @@
-"""LRCLIB fetcher — queries lrclib.net for synced/plain lyrics.
+"""
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-03-25 05:23:38
+Description: LRCLIB fetcher — queries lrclib.net for synced/plain lyrics
+"""
 
+"""
 Requires complete track metadata (artist, title, album, duration).
 """
 
-import httpx
 from typing import Optional
+import httpx
 from loguru import logger
 from urllib.parse import urlencode
 
-from lrcfetch.models import TrackMeta, LyricResult, CacheStatus
-from lrcfetch.fetchers.base import BaseFetcher
-from lrcfetch.config import (
+from .base import BaseFetcher
+from ..models import TrackMeta, LyricResult, CacheStatus
+from ..config import (
     HTTP_TIMEOUT,
     TTL_UNSYNCED,
     TTL_NOT_FOUND,
@@ -51,14 +56,18 @@ class LrclibFetcher(BaseFetcher):
 
             if resp.status_code != 200:
                 logger.error(f"LRCLIB: API returned {resp.status_code}")
-                return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
+                return LyricResult(
+                    status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR
+                )
 
             data = resp.json()
 
             # Validate response
             if not isinstance(data, dict):
                 logger.error(f"LRCLIB: unexpected response type: {type(data).__name__}")
-                return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
+                return LyricResult(
+                    status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR
+                )
 
             synced = data.get("syncedLyrics")
             unsynced = data.get("plainLyrics")

@@ -1,5 +1,10 @@
-"""Netease Cloud Music fetcher.
+"""
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-03-25 11:04:51
+Description: Netease Cloud Music fetcher
+"""
 
+"""
 Uses the public cloudsearch API for searching and the song/lyric API for
 retrieving lyrics. No authentication required.
 
@@ -7,13 +12,14 @@ Search results are filtered by duration when the track has a known length
 to avoid returning lyrics for the wrong version of a song.
 """
 
-import httpx
 from typing import Optional
+import httpx
 from loguru import logger
-from lrcfetch.models import TrackMeta, LyricResult, CacheStatus
-from lrcfetch.fetchers.base import BaseFetcher
-from lrcfetch.lrc import is_synced
-from lrcfetch.config import (
+
+from .base import BaseFetcher
+from ..models import TrackMeta, LyricResult, CacheStatus
+from ..lrc import is_synced
+from ..config import (
     HTTP_TIMEOUT,
     TTL_NOT_FOUND,
     TTL_NETWORK_ERROR,
@@ -58,12 +64,14 @@ class NeteaseFetcher(BaseFetcher):
 
             # Validate response
             if not isinstance(result, dict):
-                logger.error(f"Netease: search returned non-dict: {type(result).__name__}")
+                logger.error(
+                    f"Netease: search returned non-dict: {type(result).__name__}"
+                )
                 return None
 
             result_body = result.get("result")
             if not isinstance(result_body, dict):
-                logger.debug(f"Netease: search 'result' field missing or invalid")
+                logger.debug("Netease: search 'result' field missing or invalid")
                 return None
 
             songs = result_body.get("songs")
@@ -86,7 +94,9 @@ class NeteaseFetcher(BaseFetcher):
                     name = song.get("name", "?")
                     duration = song.get("dt")  # milliseconds
                     if not isinstance(duration, int):
-                        logger.debug(f"  candidate {sid} '{name}': no duration, skipped")
+                        logger.debug(
+                            f"  candidate {sid} '{name}': no duration, skipped"
+                        )
                         continue
                     diff = abs(duration - track_ms)
                     logger.debug(
@@ -98,9 +108,7 @@ class NeteaseFetcher(BaseFetcher):
                         best_id = sid
 
                 if best_id is not None and best_diff <= DURATION_TOLERANCE_MS:
-                    logger.debug(
-                        f"Netease: selected id={best_id} (diff={best_diff}ms)"
-                    )
+                    logger.debug(f"Netease: selected id={best_id} (diff={best_diff}ms)")
                     return best_id
 
                 logger.debug(
@@ -150,12 +158,18 @@ class NeteaseFetcher(BaseFetcher):
 
             # Validate response
             if not isinstance(data, dict):
-                logger.error(f"Netease: lyric response is not dict: {type(data).__name__}")
-                return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
+                logger.error(
+                    f"Netease: lyric response is not dict: {type(data).__name__}"
+                )
+                return LyricResult(
+                    status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR
+                )
 
             lrc_obj = data.get("lrc")
             if not isinstance(lrc_obj, dict):
-                logger.debug(f"Netease: no 'lrc' object in response for song_id={song_id}")
+                logger.debug(
+                    f"Netease: no 'lrc' object in response for song_id={song_id}"
+                )
                 return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
 
             lrc: str = lrc_obj.get("lyric", "")
@@ -165,7 +179,9 @@ class NeteaseFetcher(BaseFetcher):
 
             # Determine sync status
             synced = is_synced(lrc)
-            status = CacheStatus.SUCCESS_SYNCED if synced else CacheStatus.SUCCESS_UNSYNCED
+            status = (
+                CacheStatus.SUCCESS_SYNCED if synced else CacheStatus.SUCCESS_UNSYNCED
+            )
             logger.info(
                 f"Netease: got {status.value} lyrics for song_id={song_id} "
                 f"({len(lrc.splitlines())} lines)"
