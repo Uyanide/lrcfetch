@@ -31,6 +31,13 @@ class CacheSearchFetcher(BaseFetcher):
             logger.debug("Cache-search: skipped — no title")
             return None
 
+        # Fast path: exact metadata match (artist+title+album), single SQL query
+        exact = self._cache.find_best_positive(track)
+        if exact:
+            logger.info(f"Cache-search: exact hit ({exact.status.value})")
+            return exact
+
+        # Slow path: fuzzy cross-album search
         matches = self._cache.search_by_meta(
             artist=track.artist,
             title=track.title,
@@ -55,7 +62,7 @@ class CacheSearchFetcher(BaseFetcher):
 
         status = CacheStatus(best["status"])
         logger.info(
-            f"Cache-search: hit from [{best.get('source')}] "
+            f"Cache-search: fuzzy hit from [{best.get('source')}] "
             f"album={best.get('album')!r} ({status.value})"
         )
         return LyricResult(
