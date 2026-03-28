@@ -20,6 +20,7 @@ from .fetchers.lrclib_search import LrclibSearchFetcher
 from .fetchers.lrclib import LrclibFetcher
 from .fetchers.spotify import SpotifyFetcher
 from .fetchers.local import LocalFetcher
+from .fetchers.cache_search import CacheSearchFetcher
 from .fetchers.base import BaseFetcher
 from .cache import CacheEngine
 from .lrc import LRC_LINE_RE, normalize_tags
@@ -59,10 +60,14 @@ _STATUS_TTL: dict[CacheStatus, Optional[int]] = {
 class LrcManager:
     """Main entry point for fetching lyrics with caching."""
 
+    # Fetchers that manage their own cache logic (skip per-source cache check)
+    _SELF_CACHED = frozenset({"cache-search"})
+
     def __init__(self) -> None:
         self.cache = CacheEngine()
         self.fetchers: dict[str, BaseFetcher] = {
             "local": LocalFetcher(),
+            "cache-search": CacheSearchFetcher(self.cache),
             "spotify": SpotifyFetcher(),
             "lrclib": LrclibFetcher(),
             "lrclib-search": LrclibSearchFetcher(),
@@ -82,6 +87,8 @@ class LrcManager:
         sequence: list[BaseFetcher] = []
         if track.is_local:
             sequence.append(self.fetchers["local"])
+        if track.title:
+            sequence.append(self.fetchers["cache-search"])
         if track.trackid:
             sequence.append(self.fetchers["spotify"])
         if track.is_complete:
@@ -121,8 +128,8 @@ class LrcManager:
         for fetcher in sequence:
             source = fetcher.source_name
 
-            # Cache check
-            if not bypass_cache:
+            # Cache check (skip for fetchers that handle their own caching)
+            if not bypass_cache and source not in self._SELF_CACHED:
                 cached = self.cache.get(track, source)
                 if cached:
                     if cached.status == CacheStatus.SUCCESS_SYNCED:
@@ -163,9 +170,10 @@ class LrcManager:
                     ttl=result.ttl,
                 )
 
-            # Cache the normalized result
-            ttl = result.ttl or _STATUS_TTL.get(result.status, TTL_NOT_FOUND)
-            self.cache.set(track, source, result, ttl_seconds=ttl)
+            # Cache the normalized result (skip for read-only fetchers)
+            if source not in self._SELF_CACHED:
+                ttl = result.ttl or _STATUS_TTL.get(result.status, TTL_NOT_FOUND)
+                self.cache.set(track, source, result, ttl_seconds=ttl)
 
             # Evaluate result
             if result.status == CacheStatus.SUCCESS_SYNCED:
