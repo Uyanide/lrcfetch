@@ -15,11 +15,17 @@ from loguru import logger
 from .config import DB_PATH, DURATION_TOLERANCE_MS
 from .models import TrackMeta, LyricResult, CacheStatus
 
-# Punctuation to strip for fuzzy matching (ASCII + common fullwidth)
+# Punctuation to strip for fuzzy matching (ASCII + fullwidth + CJK brackets/symbols)
 _PUNCT_RE = re.compile(
-    r"[~!@#$%^&*()_+\-=\[\]{}|;:'\",.<>?/\\`～！＠＃＄％＾＆＊（）＿＋－＝【】｛｝｜；：＇＂，。＜＞？／＼｀]"
+    r"[~!@#$%^&*()_+\-=\[\]{}|;:'\",.<>?/\\`"
+    r"～！＠＃＄％＾＆＊（）＿＋－＝【】｛｝｜；：＇＂，。＜＞？／＼｀"
+    r"「」『』《》〈〉〔〕·•‥…—–]"
 )
 _SPACE_RE = re.compile(r"\s+")
+# feat./ft./featuring and everything after (case-insensitive, word boundary)
+_FEAT_RE = re.compile(r"\s*(?:\bfeat\.?\b|\bft\.?\b|\bfeaturing\b).*", re.IGNORECASE)
+# Multi-artist separators: /, &, ×, x (surrounded by spaces), ;, 、, vs.
+_ARTIST_SEP_RE = re.compile(r"\s*(?:[/&;×、]|\bvs\.?\b|\bx\b)\s*", re.IGNORECASE)
 
 
 def _normalize_for_match(s: str) -> str:
@@ -29,9 +35,24 @@ def _normalize_for_match(s: str) -> str:
     and collapses whitespace.
     """
     s = unicodedata.normalize("NFKC", s).lower()
-    s = _PUNCT_RE.sub("", s)
+    s = _FEAT_RE.sub("", s)
+    s = _PUNCT_RE.sub(" ", s)
     s = _SPACE_RE.sub(" ", s).strip()
     return s
+
+
+def _normalize_artist(s: str) -> str:
+    """Normalize an artist string: split by separators, normalize each, sort.
+
+    Splits first (on /, &, ;, ×, 、, vs., x), then strips feat./ft./featuring
+    from each part individually, so 'A feat. C / B' → ['a', 'b'] not just ['a'].
+    """
+    s = unicodedata.normalize("NFKC", s).lower()
+    parts = _ARTIST_SEP_RE.split(s)
+    normed = sorted(
+        {_normalize_for_match(p) for p in parts if _FEAT_RE.sub("", p).strip()}
+    )
+    return "\0".join(normed) if normed else _normalize_for_match(s)
 
 
 def _generate_key(track: TrackMeta, source: str) -> str:
@@ -331,7 +352,7 @@ class CacheEngine:
             ).fetchall()
 
         norm_title = _normalize_for_match(title)
-        norm_artist = _normalize_for_match(artist) if artist else None
+        norm_artist = _normalize_artist(artist) if artist else None
 
         matches: list[dict] = []
         for row in rows:
@@ -343,7 +364,7 @@ class CacheEngine:
             # Artist must match if provided
             if norm_artist:
                 row_artist = row_dict.get("artist") or ""
-                if _normalize_for_match(row_artist) != norm_artist:
+                if _normalize_artist(row_artist) != norm_artist:
                     continue
             matches.append(row_dict)
 
