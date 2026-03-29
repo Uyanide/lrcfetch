@@ -6,10 +6,9 @@ dist/
 wheels/
 *.egg-info
 
-# Virtual environments
-.venv
+.*
+!.gitignore
+!.python-version
 
-.env
-.claude
-.vscode
-.ruff_cache
+*.md
+!README.md
