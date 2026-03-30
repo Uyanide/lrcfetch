@@ -7,10 +7,12 @@ A CLI tool for fetching LRC lyrics on Linux. Automatically detects the currently
 Lyrics are fetched using a fallback pipeline (first synced result wins):
 
 1. **Local** — sidecar `.lrc` files or embedded audio metadata (FLAC, MP3)
-2. **Spotify** — synced lyrics via Spotify's API (requires `SPOTIFY_SP_DC`)
-3. **LRCLIB** — exact match from [lrclib.net](https://lrclib.net) (requires full metadata)
-4. **LRCLIB Search** — fuzzy search from lrclib.net (requires at least a title)
-5. **Netease** — Netease Cloud Music public API
+2. **Cache Search** — fuzzy cross-album lookup in local cache
+3. **Spotify** — synced lyrics via Spotify's API (requires `SPOTIFY_SP_DC`)
+4. **LRCLIB** — exact match from [lrclib.net](https://lrclib.net) (requires full metadata)
+5. **LRCLIB Search** — fuzzy search from lrclib.net (requires at least a title)
+6. **Netease** — Netease Cloud Music public API
+7. **QQ Music** — QQ Music via self-hosted API proxy (requires `QQ_MUSIC_API_URL` that provides the same interface as [tooplick/qq-music-api](https://github.com/tooplick/qq-music-api))
 
 ## Usage
 
@@ -30,14 +32,15 @@ lrcfetch export
 lrcfetch fetch --method spotify
 
 # Cache management
-lrcfetch cache --stats
-lrcfetch cache --query
-lrcfetch cache --clear
+lrcfetch cache stats        # show cache statistics
+lrcfetch cache query        # query cache for current track
+lrcfetch cache clear        # clears cache of current track
+lrcfetch cache clear --all  # clears entire cache
 ```
 
 ## Configuration
 
-Set `SPOTIFY_SP_DC` via environment variable or `.env` file:
+Set credentials via environment variable or `.env` file:
 
 - `~/.config/lrcfetch/.env` — user-level
 - `.env` in working directory — project-local
@@ -45,4 +48,18 @@ Set `SPOTIFY_SP_DC` via environment variable or `.env` file:
 
 ```env
 SPOTIFY_SP_DC=your_cookie_value
+QQ_MUSIC_API_URL=https://api.example.com
 ```
+
+Shell completion (zsh/fish/bash):
+
+```bash
+lrcfetch --install-completion
+```
+
+## Credits
+
+- [lrclib.net](https://lrclib.net)
+- [spotify-lyrics-api](https://github.com/akashrchandran/spotify-lyrics-api)
+- [NeteaseCloudMusicAPI](https://www.npmjs.com/package/NeteaseCloudMusicApi?activeTab=readme)
+- [qq-music-api](https://github.com/tooplick/qq-music-api)

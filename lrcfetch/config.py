@@ -55,6 +55,9 @@ NETEASE_LYRIC_URL = "https://interface3.music.163.com/api/song/lyric"
 LRCLIB_API_URL = "https://lrclib.net/api/get"
 LRCLIB_SEARCH_URL = "https://lrclib.net/api/search"
 
+# QQ Music API (self-hosted proxy)
+QQ_MUSIC_API_URL = os.environ.get("QQ_MUSIC_API_URL", "").rstrip("/")
+
 # User-Agents
 UA_BROWSER = "Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0"
 UA_LRCFETCH = "LRCFetch (https://github.com/Uyanide/lrcfetch)"

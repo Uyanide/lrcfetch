@@ -17,6 +17,7 @@ from loguru import logger
 from typing import Literal
 
 from .fetchers.netease import NeteaseFetcher
+from .fetchers.qqmusic import QQMusicFetcher
 from .fetchers.lrclib_search import LrclibSearchFetcher
 from .fetchers.lrclib import LrclibFetcher
 from .fetchers.spotify import SpotifyFetcher
@@ -28,9 +29,23 @@ from .lrc import LRC_LINE_RE, normalize_tags
 from .config import TTL_SYNCED, TTL_UNSYNCED, TTL_NOT_FOUND, TTL_NETWORK_ERROR
 from .models import TrackMeta, LyricResult, CacheStatus
 
-METHODS = ("local", "cache-search", "spotify", "lrclib", "lrclib-search", "netease")
+METHODS = (
+    "local",
+    "cache-search",
+    "spotify",
+    "lrclib",
+    "lrclib-search",
+    "netease",
+    "qqmusic",
+)
 FetcherMethodType = Literal[
-    "local", "cache-search", "spotify", "lrclib", "lrclib-search", "netease"
+    "local",
+    "cache-search",
+    "spotify",
+    "lrclib",
+    "lrclib-search",
+    "netease",
+    "qqmusic",
 ]
 
 
@@ -78,6 +93,7 @@ class LrcManager:
             "lrclib": LrclibFetcher(),
             "lrclib-search": LrclibSearchFetcher(),
             "netease": NeteaseFetcher(),
+            "qqmusic": QQMusicFetcher(),
         }
         assert set(self.fetchers) == set(METHODS), (
             f"METHODS and fetchers out of sync: {set(METHODS) ^ set(self.fetchers)}"
@@ -105,6 +121,7 @@ class LrcManager:
         if track.title:
             sequence.append(self.fetchers["lrclib-search"])
         sequence.append(self.fetchers["netease"])
+        sequence.append(self.fetchers["qqmusic"])
 
         logger.debug(f"Fallback sequence: {[f.source_name for f in sequence]}")
         return sequence
