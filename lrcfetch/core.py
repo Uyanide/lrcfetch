@@ -14,6 +14,7 @@ Fetch pipeline:
 
 from typing import Optional
 from loguru import logger
+from typing import Literal
 
 from .fetchers.netease import NeteaseFetcher
 from .fetchers.lrclib_search import LrclibSearchFetcher
@@ -26,6 +27,11 @@ from .cache import CacheEngine
 from .lrc import LRC_LINE_RE, normalize_tags
 from .config import TTL_SYNCED, TTL_UNSYNCED, TTL_NOT_FOUND, TTL_NETWORK_ERROR
 from .models import TrackMeta, LyricResult, CacheStatus
+
+METHODS = ("local", "cache-search", "spotify", "lrclib", "lrclib-search", "netease")
+FetcherMethodType = Literal[
+    "local", "cache-search", "spotify", "lrclib", "lrclib-search", "netease"
+]
 
 
 def _normalize_unsynced(lyrics: str) -> str:
@@ -65,7 +71,7 @@ class LrcManager:
 
     def __init__(self) -> None:
         self.cache = CacheEngine()
-        self.fetchers: dict[str, BaseFetcher] = {
+        self.fetchers: dict[FetcherMethodType, BaseFetcher] = {
             "local": LocalFetcher(),
             "cache-search": CacheSearchFetcher(self.cache),
             "spotify": SpotifyFetcher(),
@@ -73,9 +79,12 @@ class LrcManager:
             "lrclib-search": LrclibSearchFetcher(),
             "netease": NeteaseFetcher(),
         }
+        assert set(self.fetchers) == set(METHODS), (
+            f"METHODS and fetchers out of sync: {set(METHODS) ^ set(self.fetchers)}"
+        )
 
     def _build_sequence(
-        self, track: TrackMeta, force_method: Optional[str] = None
+        self, track: TrackMeta, force_method: Optional[FetcherMethodType] = None
     ) -> list[BaseFetcher]:
         """Determine the ordered list of fetchers to try."""
         if force_method:
@@ -103,7 +112,7 @@ class LrcManager:
     def fetch_for_track(
         self,
         track: TrackMeta,
-        force_method: Optional[str] = None,
+        force_method: Optional[FetcherMethodType] = None,
         bypass_cache: bool = False,
     ) -> Optional[LyricResult]:
         """Fetch lyrics for *track* using the fallback pipeline.
