@@ -190,6 +190,7 @@ class SpotifyFetcher(BaseFetcher):
         headers = {
             "User-Agent": UA_BROWSER,
             "Cookie": f"sp_dc={SPOTIFY_SP_DC}",
+            "Accept": "application/json",
         }
 
         with httpx.Client(headers=headers) as client:
@@ -206,11 +207,11 @@ class SpotifyFetcher(BaseFetcher):
             logger.debug(f"Spotify: generated TOTP v{version}: {totp}")
 
             params = {
-                "reason": "transport",
+                "reason": "init",
                 "productType": "web-player",
                 "totp": totp,
                 "totpVer": str(version),
-                "ts": str(int(time.time())),
+                "totpServer": totp,
             }
 
             try:
@@ -286,11 +287,12 @@ class SpotifyFetcher(BaseFetcher):
             logger.error("Spotify: cannot fetch lyrics without a token")
             return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
 
-        url = f"{SPOTIFY_LYRICS_URL}{track.trackid}?format=json&market=from_token"
+        url = f"{SPOTIFY_LYRICS_URL}{track.trackid}?format=json&vocalRemoval=false&market=from_token"
         headers = {
             "User-Agent": UA_BROWSER,
             "Authorization": f"Bearer {token}",
             "App-Platform": "WebPlayer",
+            "Accept": "application/json",
         }
 
         try:
