@@ -49,7 +49,12 @@ Set credentials via environment variable or `.env` file:
 ```env
 SPOTIFY_SP_DC=your_cookie_value
 QQ_MUSIC_API_URL=https://api.example.com
+LRCFETCH_PLAYER=spotify
 ```
+
+- `SPOTIFY_SP_DC` — required for Spotify source. Defaults to empty (disabled Spotify source).
+- `QQ_MUSIC_API_URL` — required for QQ Music source. Defaults to empty (disabled QQ Music source).
+- `LRCFETCH_PLAYER` — preferred MPRIS player when multiple are active. Defaults to `spotify`. Only used when no `--player` flag is given and more than one player (or none of them) is currently playing.
 
 Shell completion (zsh/fish/bash):
 

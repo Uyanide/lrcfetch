@@ -9,14 +9,13 @@ from dbus_next.aio.message_bus import MessageBus
 from dbus_next.constants import BusType
 from dbus_next.message import Message
 from lrcfetch.models import TrackMeta
+from lrcfetch.config import PREFERRED_PLAYER
 from loguru import logger
 from typing import Optional, List, Any
-import subprocess
 
 
-async def _get_active_players(
-    bus: MessageBus, specific_player: Optional[str] = None
-) -> List[str]:
+async def _list_mpris_players(bus: MessageBus) -> List[str]:
+    """List all MPRIS player bus names."""
     try:
         reply = await bus.call(
             Message(
@@ -28,20 +27,68 @@ async def _get_active_players(
         )
         if not reply or not reply.body:
             return []
-
-        names = reply.body[0]
-        players = [name for name in names if name.startswith("org.mpris.MediaPlayer2.")]
-
-        if specific_player:
-            players = [p for p in players if specific_player.lower() in p.lower()]
-        else:
-            # Sort so that spotify is preferred
-            players.sort(key=lambda x: 0 if "spotify" in x.lower() else 1)
-
-        return players
+        return [
+            name for name in reply.body[0] if name.startswith("org.mpris.MediaPlayer2.")
+        ]
     except Exception as e:
         logger.error(f"Failed to list DBus names: {e}")
         return []
+
+
+async def _get_playback_status(bus: MessageBus, player_name: str) -> Optional[str]:
+    """Get PlaybackStatus ('Playing', 'Paused', 'Stopped') for a player."""
+    try:
+        introspection = await bus.introspect(player_name, "/org/mpris/MediaPlayer2")
+        proxy = bus.get_proxy_object(
+            player_name, "/org/mpris/MediaPlayer2", introspection
+        )
+        props = proxy.get_interface("org.freedesktop.DBus.Properties")
+        status_var = await getattr(props, "call_get")(
+            "org.mpris.MediaPlayer2.Player", "PlaybackStatus"
+        )
+        return status_var.value if status_var else None
+    except Exception as e:
+        logger.debug(f"Could not get playback status for {player_name}: {e}")
+        return None
+
+
+async def _select_player(
+    bus: MessageBus, specific_player: Optional[str] = None
+) -> Optional[str]:
+    """Select the best MPRIS player.
+
+    When specific_player is given, filter by name match.
+    Otherwise: prefer the currently playing player. If multiple are playing,
+    prefer the one matching LRCFETCH_PLAYER env var (default: spotify).
+    """
+    players = await _list_mpris_players(bus)
+    if not players:
+        return None
+
+    if specific_player:
+        players = [p for p in players if specific_player.lower() in p.lower()]
+        return players[0] if players else None
+
+    # Check playback status for each player
+    playing = []
+    for p in players:
+        status = await _get_playback_status(bus, p)
+        logger.debug(f"Player {p}: {status}")
+        if status == "Playing":
+            playing.append(p)
+
+    candidates = playing if playing else players
+
+    if len(candidates) == 1:
+        return candidates[0]
+
+    # Multiple candidates: prefer LRCFETCH_PLAYER
+    preferred = PREFERRED_PLAYER.lower()
+    if preferred:
+        for p in candidates:
+            if preferred in p.lower():
+                return p
+    return candidates[0]
 
 
 async def _fetch_metadata_dbus(
@@ -55,14 +102,13 @@ async def _fetch_metadata_dbus(
         return None
 
     try:
-        players = await _get_active_players(bus, specific_player)
-        if not players:
+        player_name = await _select_player(bus, specific_player)
+        if not player_name:
             logger.debug(
                 f"No active MPRIS players found via DBus{' for ' + specific_player if specific_player else ''}."
             )
             return None
 
-        player_name = players[0]
         logger.debug(f"Using player: {player_name}")
 
         introspection = await bus.introspect(player_name, "/org/mpris/MediaPlayer2")
@@ -134,66 +180,9 @@ async def _fetch_metadata_dbus(
             bus.disconnect()
 
 
-def _fetch_metadata_subprocess(
-    specific_player: Optional[str] = None,
-) -> Optional[TrackMeta]:
-    """Fallback using playerctl if dbus-next fails or session bus is problematic."""
-    logger.debug("Attempting to use playerctl as fallback.")
-    try:
-        # Check if playerctl exists
-        subprocess.run(["playerctl", "--version"], capture_output=True, check=True)
-
-        base_cmd = ["playerctl"]
-        if specific_player:
-            base_cmd.extend(["-p", specific_player])
-
-        def _get_prop(prop: str) -> Optional[str]:
-            res = subprocess.run(
-                base_cmd + ["metadata", prop], capture_output=True, text=True
-            )
-            if res.returncode == 0 and res.stdout.strip():
-                return res.stdout.strip()
-            return None
-
-        trackid = _get_prop("mpris:trackid")
-        if trackid:
-            if trackid.startswith("spotify:track:"):
-                trackid = trackid.removeprefix("spotify:track:")
-            elif trackid.startswith("/com/spotify/track/"):
-                trackid = trackid.removeprefix("/com/spotify/track/")
-
-        length_str = _get_prop("mpris:length")
-        length = (
-            int(length_str) // 1000 if length_str and length_str.isdigit() else None
-        )
-
-        album = _get_prop("xesam:album")
-        artist = _get_prop("xesam:artist")
-        title = _get_prop("xesam:title")
-        url = _get_prop("xesam:url")
-
-        if not any([trackid, length, album, artist, title, url]):
-            return None
-
-        return TrackMeta(
-            trackid=trackid,
-            length=length,
-            album=album,
-            artist=artist,
-            title=title,
-            url=url,
-        )
-    except Exception as e:
-        logger.debug(f"playerctl fallback failed: {e}")
-        return None
-
-
 def get_current_track(player_name: Optional[str] = None) -> Optional[TrackMeta]:
     try:
-        meta = asyncio.run(_fetch_metadata_dbus(player_name))
-        if meta:
-            return meta
+        return asyncio.run(_fetch_metadata_dbus(player_name))
     except Exception as e:
         logger.error(f"DBus async loop failed: {e}")
-
-    return _fetch_metadata_subprocess(player_name)
+        return None
