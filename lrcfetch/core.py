@@ -18,30 +18,10 @@ from loguru import logger
 from .fetchers import FetcherMethodType, create_fetchers
 from .fetchers.base import BaseFetcher
 from .cache import CacheEngine
-from .lrc import LRC_LINE_RE, normalize_tags
+from .lrc import normalize_unsynced
 from .config import TTL_SYNCED, TTL_UNSYNCED, TTL_NOT_FOUND, TTL_NETWORK_ERROR
 from .models import TrackMeta, LyricResult, CacheStatus
 from .enrichers import enrich_track
-
-
-def _normalize_unsynced(lyrics: str) -> str:
-    """Normalize unsynced lyrics so every line has a [00:00.00] tag.
-
-    - Lines that already have time tags: replace with [00:00.00]
-    - Lines without time tags: prepend [00:00.00]
-    - Blank lines are kept as-is
-    """
-    out: list[str] = []
-    for line in lyrics.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            out.append("")
-            continue
-        cleaned = LRC_LINE_RE.sub("", stripped)
-        while LRC_LINE_RE.match(cleaned):
-            cleaned = LRC_LINE_RE.sub("", cleaned)
-        out.append(f"[00:00.00]{cleaned}")
-    return "\n".join(out)
 
 
 # Maps CacheStatus to the default TTL used when storing results
@@ -149,16 +129,7 @@ class LrcManager:
                 logger.debug(f"[{source}] returned None (no result)")
                 continue
 
-            # Normalize non-standard time tags [mm:ss:cc] → [mm:ss.cc]
-            if result.lyrics:
-                result = LyricResult(
-                    status=result.status,
-                    lyrics=normalize_tags(result.lyrics),
-                    source=result.source,
-                    ttl=result.ttl,
-                )
-
-            # Cache the normalized result (skip for self-cached fetchers)
+            # Cache the result (skip for self-cached fetchers)
             if not fetcher.self_cached:
                 ttl = result.ttl or _STATUS_TTL.get(result.status, TTL_NOT_FOUND)
                 self.cache.set(track, source, result, ttl_seconds=ttl)
@@ -184,7 +155,7 @@ class LrcManager:
             ):
                 best_result = LyricResult(
                     status=best_result.status,
-                    lyrics=_normalize_unsynced(best_result.lyrics),
+                    lyrics=normalize_unsynced(best_result.lyrics),
                     source=best_result.source,
                     ttl=best_result.ttl,
                 )

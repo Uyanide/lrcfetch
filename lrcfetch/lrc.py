@@ -1,7 +1,7 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-25 21:54:01
-Description: Shared LRC time-tag utilities
+Description: Shared LRC time-tag utilities (definitely overengineered)
 """
 
 import re
@@ -11,91 +11,143 @@ from urllib.parse import unquote
 
 from .models import CacheStatus
 
-# Standard format: [mm:ss.cc] or [mm:ss.ccc]
-_STANDARD_TAG_RE = re.compile(r"\[\d{2}:\d{2}\.\d{2,3}\]")
+# Parses any time tag input format:
+#   [mm:ss], [mm:ss.c], [mm:ss.cc], [mm:ss.ccc], [mm:ss:cc], …
+_RAW_TAG_RE = re.compile(r"\[(\d{2,}):(\d{2})(?:[.:](\d{1,3}))?\]")
 
-# Non-standard format: [mm:ss:cc] (two colons instead of dot)
-_COLON_TAG_RE = re.compile(r"\[(\d{2}:\d{2}):(\d{2,3})\]")
+# Standard format after normalization: [mm:ss.cc]
+_STD_TAG_RE = re.compile(r"\[\d{2,}:\d{2}\.\d{2}\]")
 
-# Matches any LRC time tag (standard or non-standard) at start of line
-LRC_LINE_RE = re.compile(r"^\[(\d{2}:\d{2}[.:]\d{2,3})\]", re.MULTILINE)
+# Standard format with capture groups
+_STD_TAG_CAPTURE_RE = re.compile(r"\[(\d{2,}):(\d{2})\.(\d{2})\]")
 
-# All-zero tags
-_ZERO_TAG_RE = re.compile(r"^\[00:00[.:]0{2,3}\]$")
+# Matches a standard time tag at the start of a line
+_LRC_LINE_RE = re.compile(r"^\[\d{2,}:\d{2}\.\d{2}\]", re.MULTILINE)
 
 # [offset:+/-xxx] tag — value in milliseconds
 _OFFSET_RE = re.compile(r"^\[offset:\s*([+-]?\d+)\]\s*$", re.MULTILINE | re.IGNORECASE)
 
-# Time tag for offset application: captures mm, ss, cc/ccc
-_TIME_TAG_RE = re.compile(r"\[(\d{2}):(\d{2})\.(\d{2,3})\]")
+
+def _raw_tag_to_cs(mm: str, ss: str, frac: Optional[str]) -> str:
+    """Convert parsed time tag components to standard [mm:ss.cc] string."""
+    if frac is None:
+        ms = 0
+    else:
+        # cc in [mm:ss:cc] is also treated as centiseconds, per LRC spec
+        #             ^
+        # why does this format even exist, idk
+        n = len(frac)
+        if n == 1:
+            ms = int(frac) * 100
+        elif n == 2:
+            ms = int(frac) * 10
+        else:
+            ms = int(frac)
+    cs = min(round(ms / 10), 99)
+    return f"[{mm}:{ss}.{cs:02d}]"
+
+
+def _reformat(text: str) -> str:
+    """Parse each line and reformat to standard [mm:ss.cc]...content form.
+
+    Handles any mix of time tag formats on input. Lines with no time tags
+    are stripped of leading/trailing whitespace and passed through unchanged.
+    """
+    out: list[str] = []
+    for line in text.splitlines():
+        line = line.strip()
+        pos = 0
+        tags: list[str] = []
+        while True:
+            while pos < len(line) and line[pos] == " ":
+                pos += 1
+            m = _RAW_TAG_RE.match(line, pos)
+            # Non-time tags are passed through as-is, except for leading/trailing whitespace which is stripped.
+            if not m:
+                # No more tags on this line
+                break
+            tags.append(_raw_tag_to_cs(m.group(1), m.group(2), m.group(3)))
+            pos = m.end()
+        if tags:
+            # This could break lyric lines of some kind of word-synced LRC format,
+            # but such format were not planned to be supported in the first place, so…
+            out.append("".join(tags) + line[pos:].lstrip())
+        else:
+            out.append(line)
+            # Empty lines with no tags are also preserved
+    return "\n".join(out)
 
 
 def _apply_offset(text: str) -> str:
-    """Parse [offset:±ms] tag and shift all time tags accordingly.
+    """Parse [offset:±ms] and shift all standard [mm:ss.cc] tags accordingly.
 
-    Per LRC spec, a positive offset means lyrics appear sooner (subtract
-    from timestamps), negative means later (add to timestamps).
+    Per LRC spec, positive offset = lyrics appear sooner (subtract from timestamps).
     """
     m = _OFFSET_RE.search(text)
     if not m:
         return text
     offset_ms = int(m.group(1))
+    text = _OFFSET_RE.sub("", text).strip("\n")
     if offset_ms == 0:
-        return _OFFSET_RE.sub("", text).strip("\n")
-
-    # Remove the offset tag line
-    text = _OFFSET_RE.sub("", text)
+        return text
 
     def _shift(match: re.Match) -> str:
-        mm, ss, cs = int(match.group(1)), int(match.group(2)), match.group(3)
-        # Normalize centiseconds to milliseconds
-        if len(cs) == 2:
-            ms = int(cs) * 10
-            fmt_cs = 2
-        else:
-            ms = int(cs)
-            fmt_cs = 3
-        total_ms = (mm * 60 + ss) * 1000 + ms - offset_ms
-        total_ms = max(0, total_ms)
+        total_ms = max(
+            0,
+            (int(match.group(1)) * 60 + int(match.group(2))) * 1000
+            + int(match.group(3)) * 10
+            - offset_ms,
+        )
         new_mm = total_ms // 60000
         new_ss = (total_ms % 60000) // 1000
-        new_cs = total_ms % 1000
-        if fmt_cs == 2:
-            new_cs = new_cs // 10
-            return f"[{new_mm:02d}:{new_ss:02d}.{new_cs:02d}]"
-        return f"[{new_mm:02d}:{new_ss:02d}.{new_cs:03d}]"
+        new_cs = min(round((total_ms % 1000) / 10), 99)
+        return f"[{new_mm:02d}:{new_ss:02d}.{new_cs:02d}]"
 
-    return _TIME_TAG_RE.sub(_shift, text)
+    return _STD_TAG_CAPTURE_RE.sub(_shift, text)
 
 
 def normalize_tags(text: str) -> str:
-    """Normalize LRC time tags: colon format → dot format, then apply offset."""
-    text = _COLON_TAG_RE.sub(r"[\1.\2]", text)
-    return _apply_offset(text)
+    """Normalize LRC to standard form: reformat all tags to [mm:ss.cc], then apply offset."""
+    return _apply_offset(_reformat(text))
 
 
 def is_synced(text: str) -> bool:
-    """Check whether text contains actual LRC time tags with non-zero times.
+    """Check whether text contains non-zero LRC time tags.
 
-    Returns False if no tags exist or all tags are [00:00.00].
-    Handles both [mm:ss.cc] and [mm:ss:cc] formats.
+    Assumes text has been normalized by normalize_tags (standard [mm:ss.cc] format).
     """
-    tags = _STANDARD_TAG_RE.findall(text)
-    # Also check non-standard format
-    tags += [f"[{m.group(1)}.{m.group(2)}]" for m in _COLON_TAG_RE.finditer(text)]
-    if not tags:
-        return False
-    for tag in tags:
-        if not _ZERO_TAG_RE.match(tag):
-            return True
-    return False
+    tags = _STD_TAG_RE.findall(text)
+    return bool(tags) and any(tag != "[00:00.00]" for tag in tags)
 
 
 def detect_sync_status(text: str) -> CacheStatus:
-    """Determine whether lyrics contain meaningful LRC time tags."""
+    """Determine whether lyrics contain meaningful LRC time tags.
+
+    Assumes text has been normalized by normalize_tags.
+    """
     return (
         CacheStatus.SUCCESS_SYNCED if is_synced(text) else CacheStatus.SUCCESS_UNSYNCED
     )
+
+
+def normalize_unsynced(lyrics: str) -> str:
+    """Normalize unsynced lyrics so every line has a [00:00.00] tag.
+
+    - Lines that already have time tags: replace with [00:00.00]
+    - Lines without time tags: prepend [00:00.00]
+    - Blank lines are converted to [00:00.00]
+    """
+    out: list[str] = []
+    for line in lyrics.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            out.append("[00:00.00]")
+            continue
+        cleaned = _LRC_LINE_RE.sub("", stripped)
+        while _LRC_LINE_RE.match(cleaned):
+            cleaned = _LRC_LINE_RE.sub("", cleaned)
+        out.append(f"[00:00.00]{cleaned}")
+    return "\n".join(out)
 
 
 def get_audio_path(audio_url: str, ensure_exists: bool = False) -> Optional[Path]:

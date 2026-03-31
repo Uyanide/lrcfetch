@@ -17,7 +17,7 @@ from mutagen.flac import FLAC
 
 from .base import BaseFetcher
 from ..models import TrackMeta, LyricResult
-from ..lrc import detect_sync_status, get_audio_path, get_sidecar_path
+from ..lrc import detect_sync_status, normalize_tags, get_audio_path, get_sidecar_path
 
 
 class LocalFetcher(BaseFetcher):
@@ -45,6 +45,7 @@ class LocalFetcher(BaseFetcher):
                 with open(lrc_path, "r", encoding="utf-8") as f:
                     content = f.read().strip()
                 if content:
+                    content = normalize_tags(content)
                     status = detect_sync_status(content)
                     logger.info(f"Local: found .lrc sidecar ({status.value})")
                     return LyricResult(
@@ -77,11 +78,12 @@ class LocalFetcher(BaseFetcher):
                             break
 
                 if lyrics:
+                    lyrics = normalize_tags(lyrics.strip())
                     status = detect_sync_status(lyrics)
                     logger.info(f"Local: found embedded lyrics ({status.value})")
                     return LyricResult(
                         status=status,
-                        lyrics=lyrics.strip(),
+                        lyrics=lyrics,
                         source=f"{self.source_name} (embedded)",
                     )
                 else:
