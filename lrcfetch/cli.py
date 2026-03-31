@@ -7,14 +7,17 @@ Description: CLI interface
 import sys
 import time
 import os
+from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 import cyclopts
 from loguru import logger
 
 from .config import enable_debug
 from .models import TrackMeta, CacheStatus
 from .mpris import get_current_track
-from .core import LrcManager, FetcherMethodType
+from .core import LrcManager
+from .fetchers import FetcherMethodType
 from .lrc import get_sidecar_path
 
 
@@ -122,7 +125,17 @@ def search(
         ),
     ] = None,
     url: Annotated[
-        str | None, cyclopts.Parameter(help="Local file URL (file:///...).")
+        str | None,
+        cyclopts.Parameter(
+            help="Local file URL (file:///...). Mutually exclusive with --path."
+        ),
+    ] = None,
+    path: Annotated[
+        str | None,
+        cyclopts.Parameter(
+            name=["--path"],
+            help="Local audio file path. Mutually exclusive with --url.",
+        ),
     ] = None,
     method: Annotated[
         FetcherMethodType | None, cyclopts.Parameter(help="Force a specific source.")
@@ -141,6 +154,14 @@ def search(
     ] = False,
 ):
     """Search for lyrics by metadata (bypasses MPRIS)."""
+    if url and path:
+        logger.error("--url and --path are mutually exclusive.")
+        sys.exit(1)
+
+    if path:
+        resolved = str(Path(path).resolve())
+        url = "file://" + quote(resolved, safe="/")
+
     track = TrackMeta(
         title=title,
         artist=artist,

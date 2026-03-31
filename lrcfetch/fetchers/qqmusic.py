@@ -155,7 +155,9 @@ class QQMusicFetcher(BaseFetcher):
             logger.error(f"QQMusic: lyric fetch failed for mid={mid}: {e}")
             return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
 
-    def fetch(self, track: TrackMeta) -> Optional[LyricResult]:
+    def fetch(
+        self, track: TrackMeta, bypass_cache: bool = False
+    ) -> Optional[LyricResult]:
         """Search for the track and fetch its lyrics."""
         if not QQ_MUSIC_API_URL:
             logger.debug("QQMusic: skipped — QQ_MUSIC_API_URL not configured")

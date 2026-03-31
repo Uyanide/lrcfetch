@@ -194,7 +194,9 @@ class NeteaseFetcher(BaseFetcher):
             logger.error(f"Netease: lyric fetch failed for song_id={song_id}: {e}")
             return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
 
-    def fetch(self, track: TrackMeta) -> Optional[LyricResult]:
+    def fetch(
+        self, track: TrackMeta, bypass_cache: bool = False
+    ) -> Optional[LyricResult]:
         """Search for the track and fetch its lyrics."""
         query = f"{track.artist or ''} {track.title or ''}".strip()
         if not query:

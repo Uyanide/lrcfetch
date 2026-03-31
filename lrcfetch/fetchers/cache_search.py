@@ -26,7 +26,17 @@ class CacheSearchFetcher(BaseFetcher):
     def source_name(self) -> str:
         return "cache-search"
 
-    def fetch(self, track: TrackMeta) -> Optional[LyricResult]:
+    @property
+    def self_cached(self) -> bool:
+        return True
+
+    def fetch(
+        self, track: TrackMeta, bypass_cache: bool = False
+    ) -> Optional[LyricResult]:
+        if bypass_cache:
+            logger.debug("Cache-search: bypassed by caller")
+            return None
+
         if not track.title:
             logger.debug("Cache-search: skipped — no title")
             return None

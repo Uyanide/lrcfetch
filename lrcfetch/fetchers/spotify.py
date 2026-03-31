@@ -274,7 +274,9 @@ class SpotifyFetcher(BaseFetcher):
                 continue
         return False
 
-    def fetch(self, track: TrackMeta) -> Optional[LyricResult]:
+    def fetch(
+        self, track: TrackMeta, bypass_cache: bool = False
+    ) -> Optional[LyricResult]:
         """Fetch lyrics for a Spotify track by its track ID."""
         if not track.trackid:
             logger.debug("Spotify: skipped — no trackid in metadata")

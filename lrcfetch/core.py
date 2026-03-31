@@ -14,39 +14,14 @@ Fetch pipeline:
 
 from typing import Optional
 from loguru import logger
-from typing import Literal
 
-from .fetchers.netease import NeteaseFetcher
-from .fetchers.qqmusic import QQMusicFetcher
-from .fetchers.lrclib_search import LrclibSearchFetcher
-from .fetchers.lrclib import LrclibFetcher
-from .fetchers.spotify import SpotifyFetcher
-from .fetchers.local import LocalFetcher
-from .fetchers.cache_search import CacheSearchFetcher
+from .fetchers import FetcherMethodType, create_fetchers
 from .fetchers.base import BaseFetcher
 from .cache import CacheEngine
 from .lrc import LRC_LINE_RE, normalize_tags
 from .config import TTL_SYNCED, TTL_UNSYNCED, TTL_NOT_FOUND, TTL_NETWORK_ERROR
 from .models import TrackMeta, LyricResult, CacheStatus
-
-METHODS = (
-    "local",
-    "cache-search",
-    "spotify",
-    "lrclib",
-    "lrclib-search",
-    "netease",
-    "qqmusic",
-)
-FetcherMethodType = Literal[
-    "local",
-    "cache-search",
-    "spotify",
-    "lrclib",
-    "lrclib-search",
-    "netease",
-    "qqmusic",
-]
+from .enrichers import enrich_track
 
 
 def _normalize_unsynced(lyrics: str) -> str:
@@ -81,23 +56,9 @@ _STATUS_TTL: dict[CacheStatus, Optional[int]] = {
 class LrcManager:
     """Main entry point for fetching lyrics with caching."""
 
-    # Fetchers that manage their own cache logic (skip per-source cache check)
-    _SELF_CACHED = frozenset({"cache-search"})
-
     def __init__(self) -> None:
         self.cache = CacheEngine()
-        self.fetchers: dict[FetcherMethodType, BaseFetcher] = {
-            "local": LocalFetcher(),
-            "cache-search": CacheSearchFetcher(self.cache),
-            "spotify": SpotifyFetcher(),
-            "lrclib": LrclibFetcher(),
-            "lrclib-search": LrclibSearchFetcher(),
-            "netease": NeteaseFetcher(),
-            "qqmusic": QQMusicFetcher(),
-        }
-        assert set(self.fetchers) == set(METHODS), (
-            f"METHODS and fetchers out of sync: {set(METHODS) ^ set(self.fetchers)}"
-        )
+        self.fetchers = create_fetchers(self.cache)
 
     def _build_sequence(
         self, track: TrackMeta, force_method: Optional[FetcherMethodType] = None
@@ -142,6 +103,7 @@ class LrcManager:
         After all sources are tried, returns the best result found
         (synced > unsynced > None).
         """
+        track = enrich_track(track)
         logger.info(f"Fetching lyrics for: {track.display_name()}")
 
         sequence = self._build_sequence(track, force_method)
@@ -155,7 +117,7 @@ class LrcManager:
             source = fetcher.source_name
 
             # Cache check (skip for fetchers that handle their own caching)
-            if not bypass_cache and source not in self._SELF_CACHED:
+            if not bypass_cache and not fetcher.self_cached:
                 cached = self.cache.get(track, source)
                 if cached:
                     if cached.status == CacheStatus.SUCCESS_SYNCED:
@@ -176,12 +138,12 @@ class LrcManager:
                             f"[{source}] cache hit: {cached.status.value}, skipping"
                         )
                         continue
-            else:
+            elif not fetcher.self_cached:
                 logger.debug(f"[{source}] cache bypassed")
 
             # Fetch
             logger.debug(f"[{source}] calling fetcher...")
-            result = fetcher.fetch(track)
+            result = fetcher.fetch(track, bypass_cache=bypass_cache)
 
             if not result:
                 logger.debug(f"[{source}] returned None (no result)")
@@ -196,8 +158,8 @@ class LrcManager:
                     ttl=result.ttl,
                 )
 
-            # Cache the normalized result (skip for read-only fetchers)
-            if source not in self._SELF_CACHED:
+            # Cache the normalized result (skip for self-cached fetchers)
+            if not fetcher.self_cached:
                 ttl = result.ttl or _STATUS_TTL.get(result.status, TTL_NOT_FOUND)
                 self.cache.set(track, source, result, ttl_seconds=ttl)
 

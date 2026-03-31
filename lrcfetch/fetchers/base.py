@@ -17,7 +17,14 @@ class BaseFetcher(ABC):
         """Name of the fetcher source."""
         pass
 
+    @property
+    def self_cached(self) -> bool:
+        """True if this fetcher manages its own cache (skip per-source cache check)."""
+        return False
+
     @abstractmethod
-    def fetch(self, track: TrackMeta) -> Optional[LyricResult]:
+    def fetch(
+        self, track: TrackMeta, bypass_cache: bool = False
+    ) -> Optional[LyricResult]:
         """Fetch lyrics for the given track. Returns None if unable to fetch."""
         pass

@@ -30,7 +30,9 @@ class LrclibFetcher(BaseFetcher):
     def source_name(self) -> str:
         return "lrclib"
 
-    def fetch(self, track: TrackMeta) -> Optional[LyricResult]:
+    def fetch(
+        self, track: TrackMeta, bypass_cache: bool = False
+    ) -> Optional[LyricResult]:
         """Fetch lyrics from LRCLIB. Requires complete metadata."""
         if not track.is_complete:
             logger.debug("LRCLIB: skipped — incomplete metadata")

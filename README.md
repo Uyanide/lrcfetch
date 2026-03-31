@@ -37,6 +37,12 @@ See `lrcfetch --help` for full command reference. Common use cases:
   lrcfetch search --trackid "5p0ietGkLNEqx1Z7ijkw5g"
   ```
 
+  or for a local file:
+
+  ```bash
+  lrcfetch search --path "/path/to/Westlife - My Love.flac"
+  ```
+
 - Export to sidecar `.lrc` file:
 
   ```bash
