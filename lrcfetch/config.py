@@ -10,10 +10,12 @@ from pathlib import Path
 from platformdirs import user_cache_dir, user_config_dir
 from dotenv import load_dotenv
 from loguru import logger
+from importlib.metadata import version
 
 # Application
 APP_NAME = "lrcfetch"
 APP_AUTHOR = "Uyanide"
+APP_VERSION = version(APP_NAME)
 
 # Paths
 CACHE_DIR = user_cache_dir(APP_NAME, APP_AUTHOR)
@@ -64,7 +66,7 @@ PREFERRED_PLAYER = os.environ.get("LRCFETCH_PLAYER", "spotify")
 
 # User-Agents
 UA_BROWSER = "Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0"
-UA_LRCFETCH = "LRCFetch (https://github.com/Uyanide/lrcfetch)"
+UA_LRCFETCH = f"LRCFetch {APP_VERSION} (https://github.com/Uyanide/lrcfetch)"
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 
