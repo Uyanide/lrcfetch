@@ -33,6 +33,9 @@ class LrclibSearchFetcher(BaseFetcher):
     def source_name(self) -> str:
         return "lrclib-search"
 
+    def is_available(self, track: TrackMeta) -> bool:
+        return bool(track.title)
+
     def fetch(
         self, track: TrackMeta, bypass_cache: bool = False
     ) -> Optional[LyricResult]:

@@ -30,6 +30,9 @@ class CacheSearchFetcher(BaseFetcher):
     def self_cached(self) -> bool:
         return True
 
+    def is_available(self, track: TrackMeta) -> bool:
+        return bool(track.title)
+
     def fetch(
         self, track: TrackMeta, bypass_cache: bool = False
     ) -> Optional[LyricResult]:

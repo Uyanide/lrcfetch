@@ -25,6 +25,9 @@ class LocalFetcher(BaseFetcher):
     def source_name(self) -> str:
         return "local"
 
+    def is_available(self, track: TrackMeta) -> bool:
+        return track.is_local
+
     def fetch(
         self, track: TrackMeta, bypass_cache: bool = False
     ) -> Optional[LyricResult]:

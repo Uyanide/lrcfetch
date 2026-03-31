@@ -40,6 +40,9 @@ class NeteaseFetcher(BaseFetcher):
     def source_name(self) -> str:
         return "netease"
 
+    def is_available(self, track: TrackMeta) -> bool:
+        return bool(track.title)
+
     def _search(self, track: TrackMeta, limit: int = 10) -> Optional[int]:
         """Search Netease and return the best-matching song ID.
 

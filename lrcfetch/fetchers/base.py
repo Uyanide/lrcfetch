@@ -23,6 +23,11 @@ class BaseFetcher(ABC):
         return False
 
     @abstractmethod
+    def is_available(self, track: TrackMeta) -> bool:
+        """Check if the fetcher is available for the given track (e.g. has required metadata)."""
+        pass
+
+    @abstractmethod
     def fetch(
         self, track: TrackMeta, bypass_cache: bool = False
     ) -> Optional[LyricResult]:

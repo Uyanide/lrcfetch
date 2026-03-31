@@ -51,18 +51,9 @@ class LrcManager:
             return [self.fetchers[force_method]]
 
         sequence: list[BaseFetcher] = []
-        if track.is_local:
-            sequence.append(self.fetchers["local"])
-        if track.title:
-            sequence.append(self.fetchers["cache-search"])
-        if track.trackid:
-            sequence.append(self.fetchers["spotify"])
-        if track.is_complete:
-            sequence.append(self.fetchers["lrclib"])
-        if track.title:
-            sequence.append(self.fetchers["lrclib-search"])
-        sequence.append(self.fetchers["netease"])
-        sequence.append(self.fetchers["qqmusic"])
+        for method in self.fetchers.keys():
+            if self.fetchers[method].is_available(track):
+                sequence.append(self.fetchers[method])
 
         logger.debug(f"Fallback sequence: {[f.source_name for f in sequence]}")
         return sequence

@@ -32,6 +32,9 @@ class QQMusicFetcher(BaseFetcher):
     def source_name(self) -> str:
         return "qqmusic"
 
+    def is_available(self, track: TrackMeta) -> bool:
+        return bool(track.title) and bool(QQ_MUSIC_API_URL)
+
     def _search(self, track: TrackMeta, limit: int = 10) -> Optional[str]:
         """Search QQ Music and return the best-matching song MID."""
         query = f"{track.artist or ''} {track.title or ''}".strip()
