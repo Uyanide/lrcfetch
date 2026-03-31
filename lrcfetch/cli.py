@@ -330,6 +330,37 @@ def stats():
             print(f"  {source}: {count}")
 
 
+@cache_app.command
+def insert(
+    *,
+    path: Annotated[
+        str | None,
+        cyclopts.Parameter(
+            name=["--path"],
+            help="Path to a local .lrc file to insert instead of reading from stdin.",
+        ),
+    ] = None,
+):
+    """Manually insert lyrics into the cache for the current track."""
+    track = get_current_track(_player)
+    if not track:
+        logger.error("No active playing track found.")
+        sys.exit(1)
+
+    if path:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                lyrics = f.read()
+        except Exception as e:
+            logger.error(f"Failed to read file: {e}")
+            sys.exit(1)
+    else:
+        logger.info("Reading lyrics from stdin (Ctrl+D to finish)...")
+        lyrics = sys.stdin.read()
+
+    manager.manual_insert(track, lyrics)
+
+
 # helpers
 
 
