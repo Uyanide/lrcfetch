@@ -18,25 +18,45 @@ Lyrics are fetched using a fallback pipeline (first synced result wins):
 
 See `lrcfetch --help` for full command reference. Common use cases:
 
-```bash
-# Fetch lyrics for the currently playing track
-lrcfetch fetch
+- Fetch lyrics for the currently playing track:
 
-# Search by metadata (bypasses MPRIS)
-lrcfetch search -t "Song Title" -a "Artist"
+  ```bash
+  lrcfetch fetch
+  ```
 
-# Export to .lrc file
-lrcfetch export
+  using a specific player or source to fetch from:
 
-# Force a specific source
-lrcfetch fetch --method spotify
+  ```bash
+  lrcfetch --player mpd fetch --method lrclib-search
+  ```
 
-# Cache management
-lrcfetch cache stats        # show cache statistics
-lrcfetch cache query        # query cache for current track
-lrcfetch cache clear        # clears cache of current track
-lrcfetch cache clear --all  # clears entire cache
-```
+- Search by metadata (bypasses MPRIS):
+
+  ```bash
+  lrcfetch search -t "My Love" -a "Westlife"
+  lrcfetch search --trackid "5p0ietGkLNEqx1Z7ijkw5g"
+  ```
+
+- Export to sidecar `.lrc` file:
+
+  ```bash
+  lrcfetch export
+  ```
+
+  or to a custom path:
+
+  ```bash
+  lrcfetch export --output /path/to/lyrics.lrc
+  ```
+
+- Cache management:
+
+  ```bash
+  lrcfetch cache stats        # show cache statistics
+  lrcfetch cache query        # query cache for current track
+  lrcfetch cache clear        # clears cache of current track
+  lrcfetch cache clear --all  # clears entire cache
+  ```
 
 ## Configuration
 

@@ -108,8 +108,8 @@ def fetch(
 def search(
     *,
     title: Annotated[
-        str, cyclopts.Parameter(name=["--title", "-t"], help="Track title.")
-    ],
+        str | None, cyclopts.Parameter(name=["--title", "-t"], help="Track title.")
+    ] = None,
     artist: Annotated[
         str | None, cyclopts.Parameter(name=["--artist", "-a"], help="Artist name.")
     ] = None,
