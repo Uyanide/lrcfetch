@@ -13,7 +13,7 @@ from loguru import logger
 from importlib.metadata import version
 
 # Application
-APP_NAME = "lrcfetch"
+APP_NAME = "lrx-cli"
 APP_AUTHOR = "Uyanide"
 APP_VERSION = version(APP_NAME)
 
@@ -23,7 +23,7 @@ DB_PATH = os.path.join(CACHE_DIR, "cache.db")
 
 # .env loading
 _config_env = Path(user_config_dir(APP_NAME, APP_AUTHOR)) / ".env"
-load_dotenv(_config_env)  # ~/.config/lrcfetch/.env
+load_dotenv(_config_env)  # ~/.config/lrx-cli/.env
 load_dotenv()  # .env in cwd (does NOT override existing vars)
 
 # HTTP
@@ -62,11 +62,11 @@ LRCLIB_SEARCH_URL = "https://lrclib.net/api/search"
 QQ_MUSIC_API_URL = os.environ.get("QQ_MUSIC_API_URL", "").rstrip("/")
 
 # Player preference (used when multiple MPRIS players are active)
-PREFERRED_PLAYER = os.environ.get("LRCFETCH_PLAYER", "spotify")
+PREFERRED_PLAYER = os.environ.get("PREFERRED_PLAYER", "spotify")
 
 # User-Agents
 UA_BROWSER = "Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0"
-UA_LRCFETCH = f"LRCFetch {APP_VERSION} (https://github.com/Uyanide/lrcfetch)"
+UA_LRX = f"LRX-CLI {APP_VERSION} (https://github.com/Uyanide/lrx-cli)"
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 

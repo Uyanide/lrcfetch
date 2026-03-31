@@ -22,7 +22,7 @@ from .lrc import get_sidecar_path
 
 
 app = cyclopts.App(
-    help="LRCFetch — Fetch line-synced lyrics for your music player.",
+    help="LRX-CLI — Fetch line-synced lyrics for your music player.",
 )
 app.register_install_completion_command()
 

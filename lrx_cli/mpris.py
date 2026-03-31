@@ -8,8 +8,8 @@ import asyncio
 from dbus_next.aio.message_bus import MessageBus
 from dbus_next.constants import BusType
 from dbus_next.message import Message
-from lrx.models import TrackMeta
-from lrx.config import PREFERRED_PLAYER
+from lrx_cli.models import TrackMeta
+from lrx_cli.config import PREFERRED_PLAYER
 from loguru import logger
 from typing import Optional, List, Any
 
@@ -59,7 +59,7 @@ async def _select_player(
 
     When specific_player is given, filter by name match.
     Otherwise: prefer the currently playing player. If multiple are playing,
-    prefer the one matching LRCFETCH_PLAYER env var (default: spotify).
+    prefer the one matching PREFERRED_PLAYER env var (default: spotify).
     """
     players = await _list_mpris_players(bus)
     if not players:
@@ -82,7 +82,7 @@ async def _select_player(
     if len(candidates) == 1:
         return candidates[0]
 
-    # Multiple candidates: prefer LRCFETCH_PLAYER
+    # Multiple candidates: prefer PREFERRED_PLAYER
     preferred = PREFERRED_PLAYER.lower()
     if preferred:
         for p in candidates:

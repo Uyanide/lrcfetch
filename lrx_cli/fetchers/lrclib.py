@@ -22,7 +22,7 @@ from ..config import (
     TTL_NOT_FOUND,
     TTL_NETWORK_ERROR,
     LRCLIB_API_URL,
-    UA_LRCFETCH,
+    UA_LRX,
 )
 
 
@@ -54,7 +54,7 @@ class LrclibFetcher(BaseFetcher):
 
         try:
             with httpx.Client(timeout=HTTP_TIMEOUT) as client:
-                resp = client.get(url, headers={"User-Agent": UA_LRCFETCH})
+                resp = client.get(url, headers={"User-Agent": UA_LRX})
 
             if resp.status_code == 404:
                 logger.debug(f"LRCLIB: not found for {track.display_name()}")

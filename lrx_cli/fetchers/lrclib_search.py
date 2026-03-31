@@ -24,7 +24,7 @@ from ..config import (
     TTL_NETWORK_ERROR,
     DURATION_TOLERANCE_MS,
     LRCLIB_SEARCH_URL,
-    UA_LRCFETCH,
+    UA_LRX,
 )
 
 
@@ -55,7 +55,7 @@ class LrclibSearchFetcher(BaseFetcher):
 
         try:
             with httpx.Client(timeout=HTTP_TIMEOUT) as client:
-                resp = client.get(url, headers={"User-Agent": UA_LRCFETCH})
+                resp = client.get(url, headers={"User-Agent": UA_LRX})
 
             if resp.status_code != 200:
                 logger.error(f"LRCLIB-search: API returned {resp.status_code}")

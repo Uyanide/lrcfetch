@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.scripts]
-lrx = "lrx.cli:run"
+lrx = "lrx_cli.cli:run"
 
 [tool.ruff.lint]
 ignore = ["E402"]
