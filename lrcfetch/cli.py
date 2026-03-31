@@ -15,6 +15,7 @@ from .config import enable_debug
 from .models import TrackMeta, CacheStatus
 from .mpris import get_current_track
 from .core import LrcManager, FetcherMethodType
+from .lrc import get_sidecar_path
 
 
 app = cyclopts.App(
@@ -174,7 +175,7 @@ def export(
         str | None,
         cyclopts.Parameter(
             name=["--output", "-o"],
-            help="Output file path (default: <Artist> - <Title>.lrc).",
+            help="Output file path (default: same directory as audio file with .lrc extension, or current directory if not available).",
         ),
     ] = None,
     method: Annotated[
@@ -202,6 +203,14 @@ def export(
         sys.exit(1)
 
     # Build default output path
+    if not output:
+        if track.url:
+            lrc_path = get_sidecar_path(track.url, ensure_exists=False)
+            if lrc_path:
+                output = str(lrc_path)
+                logger.info(f"Exporting to sidecar path: {output}")
+
+    # Fallback to current directory with sanitized filename
     if not output:
         filename = (
             f"{track.artist} - {track.title}.lrc"

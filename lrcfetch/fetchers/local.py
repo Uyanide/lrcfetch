@@ -10,16 +10,14 @@ Priority:
   2. Embedded lyrics in audio metadata (FLAC, MP3 USLT/SYLT tags)
 """
 
-import os
 from typing import Optional
-from urllib.parse import unquote
 from loguru import logger
 from mutagen._file import File
 from mutagen.flac import FLAC
 
 from .base import BaseFetcher
 from ..models import TrackMeta, LyricResult
-from ..lrc import detect_sync_status
+from ..lrc import detect_sync_status, get_audio_path, get_sidecar_path
 
 
 class LocalFetcher(BaseFetcher):
@@ -32,16 +30,15 @@ class LocalFetcher(BaseFetcher):
         if not track.is_local or not track.url:
             return None
 
-        file_path = unquote(track.url.replace("file://", "", 1))
-        if not os.path.exists(file_path):
-            logger.debug(f"Local: file does not exist: {file_path}")
+        audio_path = get_audio_path(track.url, ensure_exists=False)
+        if not audio_path:
+            logger.debug(f"Local: audio URL is not a valid file path: {track.url}")
             return None
 
-        logger.info(f"Local: checking for lyrics near {file_path}")
-
-        # Sidecar .lrc file
-        lrc_path = os.path.splitext(file_path)[0] + ".lrc"
-        if os.path.exists(lrc_path):
+        lrc_path = get_sidecar_path(
+            track.url, ensure_audio_exists=False, ensure_exists=True
+        )
+        if lrc_path:
             try:
                 with open(lrc_path, "r", encoding="utf-8") as f:
                     content = f.read().strip()
@@ -53,10 +50,15 @@ class LocalFetcher(BaseFetcher):
                     )
             except Exception as e:
                 logger.error(f"Local: error reading {lrc_path}: {e}")
+        else:
+            logger.debug(f"Local: no .lrc sidecar found for {audio_path}")
 
         # Embedded metadata
+        if not audio_path.exists():
+            logger.debug(f"Local: audio file does not exist: {audio_path}")
+            return None
         try:
-            audio = File(file_path)
+            audio = File(audio_path)
             if audio is not None:
                 lyrics = None
 
@@ -83,7 +85,7 @@ class LocalFetcher(BaseFetcher):
                 else:
                     logger.debug("Local: no embedded lyrics found")
         except Exception as e:
-            logger.error(f"Local: error reading metadata for {file_path}: {e}")
+            logger.error(f"Local: error reading metadata for {audio_path}: {e}")
 
-        logger.debug(f"Local: no lyrics found for {file_path}")
+        logger.debug(f"Local: no lyrics found for {audio_path}")
         return None
