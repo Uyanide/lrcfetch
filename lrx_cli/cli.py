@@ -13,7 +13,7 @@ from urllib.parse import quote
 import cyclopts
 from loguru import logger
 
-from .config import enable_debug
+from .config import DB_PATH, enable_debug
 from .models import TrackMeta, CacheStatus
 from .mpris import get_current_track
 from .core import LrcManager
@@ -29,10 +29,13 @@ app.register_install_completion_command()
 cache_app = cyclopts.App(name="cache", help="Manage the local SQLite cache.")
 app.command(cache_app)
 
-manager = LrcManager()
 
 # Global state set by the meta launcher
 _player: str | None = None
+_db_path: str | None = None
+
+# Will be initialized before any command runs, safe to set to None here
+manager: LrcManager = None  # type: ignore
 
 
 @app.meta.default
@@ -51,11 +54,21 @@ def launcher(
             help="Target a specific MPRIS player using its DBus name or a portion thereof.",
         ),
     ] = None,
+    db_path: Annotated[
+        str | None,
+        cyclopts.Parameter(
+            name=["--db-path", "-c"],
+            help=f"Custom path for the cache database file (default: {DB_PATH}).",
+        ),
+    ] = None,
 ):
-    global _player
+    global _player, _db_path
     if debug:
         enable_debug()
     _player = player
+    _db_path = str(Path(db_path).resolve()) if db_path else None
+    global manager
+    manager = LrcManager(db_path=_db_path)
     app(tokens)
 
 

@@ -19,7 +19,7 @@ from .fetchers import FetcherMethodType, create_fetchers
 from .fetchers.base import BaseFetcher
 from .cache import CacheEngine
 from .lrc import normalize_tags, normalize_unsynced, detect_sync_status
-from .config import TTL_SYNCED, TTL_UNSYNCED, TTL_NOT_FOUND, TTL_NETWORK_ERROR
+from .config import DB_PATH, TTL_SYNCED, TTL_UNSYNCED, TTL_NOT_FOUND, TTL_NETWORK_ERROR
 from .models import TrackMeta, LyricResult, CacheStatus
 from .enrichers import enrich_track
 
@@ -36,8 +36,8 @@ _STATUS_TTL: dict[CacheStatus, Optional[int]] = {
 class LrcManager:
     """Main entry point for fetching lyrics with caching."""
 
-    def __init__(self) -> None:
-        self.cache = CacheEngine()
+    def __init__(self, db_path: Optional[str] = None) -> None:
+        self.cache = CacheEngine(db_path=db_path if db_path else DB_PATH)
         self.fetchers = create_fetchers(self.cache)
 
     def _build_sequence(
