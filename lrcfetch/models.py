@@ -4,9 +4,9 @@ Date: 2026-03-25 04:09:36
 Description: Data models
 """
 
-from pydantic import BaseModel, ConfigDict
 from enum import Enum
 from typing import Optional
+from dataclasses import dataclass
 
 
 class CacheStatus(str, Enum):
@@ -18,10 +18,9 @@ class CacheStatus(str, Enum):
     NETWORK_ERROR = "NETWORK_ERROR"
 
 
-class TrackMeta(BaseModel):
+@dataclass
+class TrackMeta:
     """Metadata describing a track obtained from MPRIS or manual input."""
-
-    model_config = ConfigDict(strict=True)
 
     trackid: Optional[str] = None  # Spotify track ID (without "spotify:track:" prefix)
     length: Optional[int] = None  # Duration in milliseconds
@@ -50,10 +49,9 @@ class TrackMeta(BaseModel):
         return " - ".join(parts) if parts else self.trackid or self.url or "(unknown)"
 
 
-class LyricResult(BaseModel):
+@dataclass
+class LyricResult:
     """Result of a lyric fetch attempt, also used as cache record."""
-
-    model_config = ConfigDict(strict=True)
 
     status: CacheStatus
     lyrics: Optional[str] = None

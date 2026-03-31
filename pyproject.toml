@@ -15,7 +15,6 @@ dependencies = [
     "loguru>=0.7.3",
     "mutagen>=1.47.0",
     "platformdirs>=4.9.4",
-    "pydantic>=2.12.5",
     "python-dotenv>=1.2.2",
 ]
 
