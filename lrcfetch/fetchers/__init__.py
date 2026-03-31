@@ -16,16 +16,6 @@ from .netease import NeteaseFetcher
 from .qqmusic import QQMusicFetcher
 from ..cache import CacheEngine
 
-METHODS = (
-    "local",
-    "cache-search",
-    "spotify",
-    "lrclib",
-    "lrclib-search",
-    "netease",
-    "qqmusic",
-)
-
 FetcherMethodType = Literal[
     "local",
     "cache-search",
@@ -37,9 +27,9 @@ FetcherMethodType = Literal[
 ]
 
 
-def create_fetchers(cache: CacheEngine) -> dict[str, BaseFetcher]:
+def create_fetchers(cache: CacheEngine) -> dict[FetcherMethodType, BaseFetcher]:
     """Instantiate all fetchers. Returns a dict keyed by source name."""
-    fetchers: dict[str, BaseFetcher] = {
+    fetchers: dict[FetcherMethodType, BaseFetcher] = {
         "local": LocalFetcher(),
         "cache-search": CacheSearchFetcher(cache),
         "spotify": SpotifyFetcher(),
@@ -48,7 +38,4 @@ def create_fetchers(cache: CacheEngine) -> dict[str, BaseFetcher]:
         "netease": NeteaseFetcher(),
         "qqmusic": QQMusicFetcher(),
     }
-    assert set(fetchers) == set(METHODS), (
-        f"METHODS and fetchers out of sync: {set(METHODS) ^ set(fetchers)}"
-    )
     return fetchers
