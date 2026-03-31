@@ -30,6 +30,7 @@ from .base import BaseFetcher
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..config import (
     HTTP_TIMEOUT,
+    SPOTIFY_APP_VERSION,
     TTL_NOT_FOUND,
     TTL_NETWORK_ERROR,
     SPOTIFY_TOKEN_URL,
@@ -189,8 +190,9 @@ class SpotifyFetcher(BaseFetcher):
 
         headers = {
             "User-Agent": UA_BROWSER,
+            "Accept": "*/*",
+            "Referer": "https://open.spotify.com/",
             "Cookie": f"sp_dc={SPOTIFY_SP_DC}",
-            "Accept": "application/json",
         }
 
         with httpx.Client(headers=headers) as client:
@@ -292,9 +294,12 @@ class SpotifyFetcher(BaseFetcher):
         url = f"{SPOTIFY_LYRICS_URL}{track.trackid}?format=json&vocalRemoval=false&market=from_token"
         headers = {
             "User-Agent": UA_BROWSER,
-            "Authorization": f"Bearer {token}",
-            "App-Platform": "WebPlayer",
             "Accept": "application/json",
+            "Authorization": f"Bearer {token}",
+            "Referer": "https://open.spotify.com/",
+            "App-Platform": "WebPlayer",
+            "Spotify-App-Version": SPOTIFY_APP_VERSION,
+            "Origin": "https://open.spotify.com",
         }
 
         try:
