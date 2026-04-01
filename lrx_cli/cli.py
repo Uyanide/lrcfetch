@@ -66,7 +66,7 @@ def launcher(
     if debug:
         enable_debug()
     _player = player
-    _db_path = str(Path(db_path).resolve()) if db_path else None
+    _db_path = str(Path(db_path).resolve()) if db_path else DB_PATH
     global manager
     manager = LrcManager(db_path=_db_path)
     app(tokens)

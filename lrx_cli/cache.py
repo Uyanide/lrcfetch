@@ -12,7 +12,7 @@ import unicodedata
 from typing import Optional
 from loguru import logger
 
-from .config import DB_PATH, DURATION_TOLERANCE_MS
+from .config import DURATION_TOLERANCE_MS
 from .models import TrackMeta, LyricResult, CacheStatus
 
 # Punctuation to strip for fuzzy matching (ASCII + fullwidth + CJK brackets/symbols)
@@ -88,7 +88,7 @@ def _generate_key(track: TrackMeta, source: str) -> str:
 
 
 class CacheEngine:
-    def __init__(self, db_path: str = DB_PATH):
+    def __init__(self, db_path: str):
         self.db_path = db_path
         self._init_db()
 
