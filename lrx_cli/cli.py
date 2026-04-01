@@ -18,7 +18,7 @@ from .models import TrackMeta, CacheStatus
 from .mpris import get_current_track
 from .core import LrcManager
 from .fetchers import FetcherMethodType
-from .lrc import get_sidecar_path
+from .lrc import get_sidecar_path, print_lyrics, to_plain
 
 
 app = cyclopts.App(
@@ -94,6 +94,12 @@ def fetch(
             name="--only-synced", negative="", help="Only accept synced (timed) lyrics."
         ),
     ] = False,
+    plain: Annotated[
+        bool,
+        cyclopts.Parameter(
+            name="--plain", negative="", help="Output only the raw lyrics without tags."
+        ),
+    ] = False,
 ):
     """Fetch and print lyrics for the currently playing track."""
     track = get_current_track(_player)
@@ -114,7 +120,7 @@ def fetch(
         logger.error("Only unsynced lyrics available (--only-synced requested).")
         sys.exit(1)
 
-    print(result.lyrics)
+    print_lyrics(result.lyrics, plain=plain)
 
 
 # search
@@ -165,6 +171,12 @@ def search(
             name="--only-synced", negative="", help="Only accept synced (timed) lyrics."
         ),
     ] = False,
+    plain: Annotated[
+        bool,
+        cyclopts.Parameter(
+            name="--plain", negative="", help="Output only the raw lyrics without tags."
+        ),
+    ] = False,
 ):
     """Search for lyrics by metadata (bypasses MPRIS)."""
     if url and path:
@@ -196,7 +208,7 @@ def search(
         logger.error("Only unsynced lyrics available (--only-synced requested).")
         sys.exit(1)
 
-    print(result.lyrics)
+    print_lyrics(result.lyrics, plain=plain)
 
 
 # export
@@ -222,6 +234,12 @@ def export(
         bool,
         cyclopts.Parameter(
             name=["--overwrite", "-f"], negative="", help="Overwrite existing file."
+        ),
+    ] = False,
+    plain: Annotated[
+        bool,
+        cyclopts.Parameter(
+            name="--plain", negative="", help="Export only the raw lyrics without tags."
         ),
     ] = False,
 ):
@@ -263,7 +281,10 @@ def export(
 
     try:
         with open(output, "w", encoding="utf-8") as f:
-            f.write(result.lyrics)
+            if plain:
+                f.write(to_plain(result.lyrics))
+            else:
+                f.write(result.lyrics)
         logger.info(f"Exported lyrics to {output}")
     except Exception as e:
         logger.error(f"Failed to write file: {e}")

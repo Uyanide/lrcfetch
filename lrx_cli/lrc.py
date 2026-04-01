@@ -27,6 +27,9 @@ _LRC_LINE_RE = re.compile(r"^\[\d{2,}:\d{2}\.\d{2}\]", re.MULTILINE)
 # [offset:+/-xxx] tag — value in milliseconds
 _OFFSET_RE = re.compile(r"^\[offset:\s*([+-]?\d+)\]\s*$", re.MULTILINE | re.IGNORECASE)
 
+# Matches any number of tags at the start of a line
+_LINE_START_TAGS_RE = re.compile(r"^(?:\[[^\]]*\])+")
+
 
 def _raw_tag_to_cs(mm: str, ss: str, frac: Optional[str]) -> str:
     """Convert parsed time tag components to standard [mm:ss.cc] string."""
@@ -176,3 +179,41 @@ def get_sidecar_path(
     if ensure_exists and not lrc_path.exists():
         return None
     return lrc_path
+
+
+def to_plain(
+    text: str,
+) -> str:
+    """Convert lyrics to plain text with all tags stripped.
+
+    Assumes text has been normalized by normalize_tags.
+    """
+
+    lines = []
+    first = True
+    for line in text.splitlines():
+        cleaned = _LINE_START_TAGS_RE.sub("", line).strip()
+        # Ignore the leading empty lines that is likely caused by tag lines
+        if not cleaned and not first:
+            lines.append("")
+        elif cleaned:
+            lines.append(cleaned)
+            first = False
+    # Remove trailing empty lines that are meaningless
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines)
+
+
+def print_lyrics(
+    text: str,
+    plain: bool = False,
+) -> None:
+    """Print lyrics, optionally stripping tags.
+
+    Assumes text has been normalized by normalize_tags.
+    """
+    if plain:
+        print(to_plain(text))
+    else:
+        print(text)
