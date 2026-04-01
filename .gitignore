@@ -9,6 +9,3 @@ wheels/
 .*
 !.gitignore
 !.python-version
-
-*.md
-!README.md
