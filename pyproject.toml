@@ -25,4 +25,7 @@ lrx = "lrx_cli.cli:run"
 ignore = ["E402"]
 
 [dependency-groups]
-dev = ["ruff>=0.15.8"]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.15.8",
+]
