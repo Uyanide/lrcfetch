@@ -182,3 +182,11 @@ def test_to_plain_fallback_for_non_synced_text_strips_start_tags() -> None:
     plain = to_plain(text)
 
     assert plain == "only-zero\nplain line"
+
+
+def test_to_plain_trims_leading_and_trailing_blank_lines() -> None:
+    text = "\n\n[00:01.00]line1\n\n[00:01.00]\n[00:02.00]line2\nline3\n\n"
+
+    plain = to_plain(text)
+
+    assert plain == "line1\n\nline2"

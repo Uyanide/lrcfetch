@@ -254,7 +254,7 @@ def to_plain(
             prev_line = line
         lines = deduped_lines
 
-    return "\n".join(lines)
+    return "\n".join(lines).strip("\n")
 
 
 def print_lyrics(
