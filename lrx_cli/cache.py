@@ -127,15 +127,13 @@ class CacheEngine:
                 f"[{status_str}, ttl={remaining}s]"
             )
             status = CacheStatus(status_str)
-            if confidence is None and status in (
-                CacheStatus.SUCCESS_SYNCED,
-                CacheStatus.SUCCESS_UNSYNCED,
-            ):
-                confidence = (
-                    LEGACY_CONFIDENCE_SYNCED
-                    if status == CacheStatus.SUCCESS_SYNCED
-                    else LEGACY_CONFIDENCE_UNSYNCED
-                )
+            if confidence is None:
+                if status == CacheStatus.SUCCESS_SYNCED:
+                    confidence = LEGACY_CONFIDENCE_SYNCED
+                elif status == CacheStatus.SUCCESS_UNSYNCED:
+                    confidence = LEGACY_CONFIDENCE_UNSYNCED
+                else:
+                    confidence = 100.0  # negative statuses: value irrelevant
 
             return LyricResult(
                 status=status,
@@ -163,13 +161,14 @@ class CacheEngine:
                 continue
             if best is None:
                 best = cached
-            else:
-                cached_conf = (
-                    cached.confidence if cached.confidence is not None else 100.0
-                )
-                best_conf = best.confidence if best.confidence is not None else 100.0
-                if cached_conf > best_conf:
-                    best = cached
+            elif cached.confidence > best.confidence:
+                best = cached
+            elif (
+                cached.confidence == best.confidence
+                and cached.status == CacheStatus.SUCCESS_SYNCED
+                and best.status != CacheStatus.SUCCESS_SYNCED
+            ):
+                best = cached
         return best
 
     # Write
@@ -298,12 +297,15 @@ class CacheEngine:
                 f"SELECT status, lyrics, source, confidence FROM cache WHERE {where} "
                 "ORDER BY COALESCE(confidence, "
                 "  CASE status WHEN ? THEN ? ELSE ? END"
-                ") DESC, created_at DESC LIMIT 1",
+                ") DESC, "
+                "CASE status WHEN ? THEN 0 ELSE 1 END, "
+                "created_at DESC LIMIT 1",
                 params
                 + [
                     CacheStatus.SUCCESS_SYNCED.value,
                     LEGACY_CONFIDENCE_SYNCED,
                     LEGACY_CONFIDENCE_UNSYNCED,
+                    CacheStatus.SUCCESS_SYNCED.value,
                 ],
             ).fetchall()
 
@@ -389,6 +391,7 @@ class CacheEngine:
                 key=lambda x: (
                     x[0],
                     -(x[1].get("confidence") or 0),
+                    x[1].get("status") != CacheStatus.SUCCESS_SYNCED.value,
                     -(x[1].get("created_at") or 0),
                 )
             )

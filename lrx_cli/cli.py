@@ -453,6 +453,8 @@ def _print_cache_row(row: dict, indent: str = "") -> None:
         print(f"{indent}  Lyrics  : {line_count} lines")
     if confidence is not None:
         print(f"{indent}  Confidence: {confidence:.0f}")
+    else:
+        print(f"{indent}  Confidence: (legacy)")
 
 
 def run():

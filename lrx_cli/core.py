@@ -40,15 +40,14 @@ _STATUS_TTL: dict[CacheStatus, Optional[int]] = {
 
 
 def _is_better(new: LyricResult, old: LyricResult) -> bool:
-    """Compare two results by confidence only.
-
-    Synced/unsynced preference is already baked into the confidence score
-    (synced bonus in scoring weights), so we don't need a separate tier.
-    None confidence = trusted = 100.
-    """
-    new_conf = new.confidence if new.confidence is not None else 100.0
-    old_conf = old.confidence if old.confidence is not None else 100.0
-    return new_conf > old_conf
+    """Compare two results: higher confidence wins; synced breaks ties."""
+    if new.confidence != old.confidence:
+        return new.confidence > old.confidence
+    # Equal confidence — prefer synced as tiebreaker
+    return (
+        new.status == CacheStatus.SUCCESS_SYNCED
+        and old.status != CacheStatus.SUCCESS_SYNCED
+    )
 
 
 class LrcManager:
@@ -121,13 +120,10 @@ class LrcManager:
                     # Positive cache hit — apply the same confidence evaluation
                     # as fresh fetches so that low-confidence cached results
                     # don't block better results from later fetchers.
-                    is_trusted = (
-                        cached.confidence is None
-                        or cached.confidence >= HIGH_CONFIDENCE
-                    )
+                    is_trusted = cached.confidence >= HIGH_CONFIDENCE
                     logger.info(
                         f"[{source}] cache hit: {cached.status.value}"
-                        f" (confidence={'trusted' if cached.confidence is None else f'{cached.confidence:.0f}'})"
+                        f" (confidence={cached.confidence:.0f})"
                     )
                     if cached.status == CacheStatus.SUCCESS_SYNCED and is_trusted:
                         return cached
@@ -155,12 +151,10 @@ class LrcManager:
                 CacheStatus.SUCCESS_SYNCED,
                 CacheStatus.SUCCESS_UNSYNCED,
             ):
-                is_trusted = (
-                    result.confidence is None or result.confidence >= HIGH_CONFIDENCE
-                )
+                is_trusted = result.confidence >= HIGH_CONFIDENCE
                 logger.info(
                     f"[{source}] got {result.status.value} lyrics"
-                    f" (confidence={'trusted' if result.confidence is None else f'{result.confidence:.0f}'})"
+                    f" (confidence={result.confidence:.0f})"
                 )
                 # Trusted synced → return immediately
                 if result.status == CacheStatus.SUCCESS_SYNCED and is_trusted:

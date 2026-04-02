@@ -62,6 +62,4 @@ class LyricResult:
     lyrics: Optional[LRCData] = None
     source: Optional[str] = None  # Which fetcher produced this result
     ttl: Optional[int] = None  # Hint for cache TTL (seconds)
-    confidence: Optional[float] = (
-        None  # 0-100 selection confidence (None = exact/trusted)
-    )
+    confidence: float = 100.0  # 0-100 selection confidence (100 = trusted/exact)
