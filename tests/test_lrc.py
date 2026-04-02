@@ -1,18 +1,11 @@
 from __future__ import annotations
 
-from lrx_cli.lrc import LRCData, _raw_tag_to_ms
+from lrx_cli.lrc import LRCData
 from lrx_cli.models import CacheStatus
 
 
 def _normalize(text: str) -> str:
     return str(LRCData(text))
-
-
-def test_raw_tag_to_ms_parses_common_fraction_formats() -> None:
-    assert _raw_tag_to_ms("00", "00", None) == 0
-    assert _raw_tag_to_ms("00", "01", "2") == 1200
-    assert _raw_tag_to_ms("00", "01", "23") == 1230
-    assert _raw_tag_to_ms("00", "01", "234") == 1234
 
 
 def test_normalize_tags_supports_all_raw_time_formats() -> None:
