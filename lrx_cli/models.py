@@ -4,9 +4,14 @@ Date: 2026-03-25 04:09:36
 Description: Data models
 """
 
+from __future__ import annotations
+
 from enum import Enum
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from dataclasses import dataclass
+
+if TYPE_CHECKING:
+    from .lrc import LRCData
 
 
 class CacheStatus(str, Enum):
@@ -54,6 +59,6 @@ class LyricResult:
     """Result of a lyric fetch attempt, also used as cache record."""
 
     status: CacheStatus
-    lyrics: Optional[str] = None
+    lyrics: Optional[LRCData] = None
     source: Optional[str] = None  # Which fetcher produced this result
     ttl: Optional[int] = None  # Hint for cache TTL (seconds)

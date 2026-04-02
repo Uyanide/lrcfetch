@@ -18,7 +18,7 @@ from loguru import logger
 from .fetchers import FetcherMethodType, create_fetchers
 from .fetchers.base import BaseFetcher
 from .cache import CacheEngine
-from .lrc import normalize_tags, normalize_unsynced, detect_sync_status
+from .lrc import LRCData
 from .config import TTL_SYNCED, TTL_UNSYNCED, TTL_NOT_FOUND, TTL_NETWORK_ERROR
 from .models import TrackMeta, LyricResult, CacheStatus
 from .enrichers import enrich_track
@@ -146,7 +146,7 @@ class LrcManager:
             ):
                 best_result = LyricResult(
                     status=best_result.status,
-                    lyrics=normalize_unsynced(best_result.lyrics),
+                    lyrics=best_result.lyrics.normalize_unsynced(),
                     source=best_result.source,
                     ttl=best_result.ttl,
                 )
@@ -167,10 +167,10 @@ class LrcManager:
         """Manually insert lyrics into the cache for a track."""
         track = enrich_track(track)
         logger.info(f"Manually inserting lyrics for: {track.display_name()}")
-        lyrics = normalize_tags(lyrics)
+        lrc = LRCData(lyrics)
         result = LyricResult(
-            status=detect_sync_status(lyrics),
-            lyrics=normalize_tags(lyrics),
+            status=lrc.detect_sync_status(),
+            lyrics=lrc,
             source="manual",
             ttl=None,
         )

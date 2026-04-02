@@ -28,7 +28,7 @@ from loguru import logger
 
 from .base import BaseFetcher
 from ..models import TrackMeta, LyricResult, CacheStatus
-from ..lrc import normalize_tags
+from ..lrc import LRCData
 from ..config import (
     HTTP_TIMEOUT,
     SPOTIFY_APP_VERSION,
@@ -358,7 +358,7 @@ class SpotifyFetcher(BaseFetcher):
                     # Unsynced: emit with zero timestamps
                     lrc_lines.append(f"[00:00.00]{words}")
 
-            content = normalize_tags("\n".join(lrc_lines))
+            content = LRCData("\n".join(lrc_lines))
             status = (
                 CacheStatus.SUCCESS_SYNCED
                 if is_synced

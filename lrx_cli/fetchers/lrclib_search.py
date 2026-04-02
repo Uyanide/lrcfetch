@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 
 from .base import BaseFetcher
 from ..models import TrackMeta, LyricResult, CacheStatus
-from ..lrc import normalize_tags
+from ..lrc import LRCData
 from ..config import (
     HTTP_TIMEOUT,
     TTL_UNSYNCED,
@@ -82,20 +82,16 @@ class LrclibSearchFetcher(BaseFetcher):
             unsynced = best.get("plainLyrics")
 
             if isinstance(synced, str) and synced.strip():
-                lyrics = normalize_tags(synced.strip())
-                logger.info(
-                    f"LRCLIB-search: got synced lyrics ({len(lyrics.splitlines())} lines)"
-                )
+                lyrics = LRCData(synced)
+                logger.info(f"LRCLIB-search: got synced lyrics ({len(lyrics)} lines)")
                 return LyricResult(
                     status=CacheStatus.SUCCESS_SYNCED,
                     lyrics=lyrics,
                     source=self.source_name,
                 )
             elif isinstance(unsynced, str) and unsynced.strip():
-                lyrics = normalize_tags(unsynced.strip())
-                logger.info(
-                    f"LRCLIB-search: got unsynced lyrics ({len(lyrics.splitlines())} lines)"
-                )
+                lyrics = LRCData(unsynced)
+                logger.info(f"LRCLIB-search: got unsynced lyrics ({len(lyrics)} lines)")
                 return LyricResult(
                     status=CacheStatus.SUCCESS_UNSYNCED,
                     lyrics=lyrics,

@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from lrx_cli.lrc import (
-    detect_sync_status,
-    is_synced,
-    normalize_tags,
-    normalize_unsynced,
-    to_plain,
-)
+from lrx_cli.lrc import LRCData
 from lrx_cli.models import CacheStatus
+
+
+def _normalize(text: str) -> str:
+    return str(LRCData(text))
 
 
 def test_normalize_tags_supports_all_raw_time_formats() -> None:
@@ -21,7 +19,7 @@ def test_normalize_tags_supports_all_raw_time_formats() -> None:
         ]
     )
 
-    normalized = normalize_tags(raw)
+    normalized = _normalize(raw)
 
     assert normalized == "\n".join(
         [
@@ -37,7 +35,7 @@ def test_normalize_tags_supports_all_raw_time_formats() -> None:
 def test_normalize_tags_keeps_non_timed_lines_trimmed_and_unchanged() -> None:
     raw = "  plain line  \n\n  [ar:Meta Header]  "
 
-    normalized = normalize_tags(raw)
+    normalized = _normalize(raw)
 
     assert normalized == "plain line\n\n[ar:Meta Header]"
 
@@ -51,7 +49,7 @@ def test_normalize_tags_removes_word_sync_patterns() -> None:
         "[00:05.00]<1,2,3>baz"
     )
 
-    normalized = normalize_tags(raw)
+    normalized = _normalize(raw)
 
     assert normalized == "\n".join(
         [
@@ -67,14 +65,14 @@ def test_normalize_tags_removes_word_sync_patterns() -> None:
 def test_normalize_tags_keeps_midline_timestamps_as_is() -> None:
     raw = "[00:01.00]Lyric [00:02.00]line"
 
-    normalized = normalize_tags(raw)
+    normalized = _normalize(raw)
 
     assert normalized == "[00:01.00]Lyric [00:02.00]line"
 
 
 def test_normalize_tags_applies_positive_and_negative_offset_per_spec() -> None:
-    positive = normalize_tags("[offset:+1000]\n[00:10.00]line")
-    negative = normalize_tags("[offset:-500]\n[00:10.00]line")
+    positive = _normalize("[offset:+1000]\n[00:10.00]line")
+    negative = _normalize("[offset:-500]\n[00:10.00]line")
 
     assert positive == "[00:09.00]line"
     assert negative == "[00:10.50]line"
@@ -83,7 +81,7 @@ def test_normalize_tags_applies_positive_and_negative_offset_per_spec() -> None:
 def test_normalize_tags_accepts_leading_spaces_and_tabs_before_tags() -> None:
     raw = "\t   [00:01.2] hello"
 
-    normalized = normalize_tags(raw)
+    normalized = _normalize(raw)
 
     assert normalized == "[00:01.20]hello"
 
@@ -91,7 +89,7 @@ def test_normalize_tags_accepts_leading_spaces_and_tabs_before_tags() -> None:
 def test_normalize_tags_handles_consecutive_start_tags_with_spaces_between() -> None:
     raw = "[00:01]   [00:02.3]    chorus"
 
-    normalized = normalize_tags(raw)
+    normalized = _normalize(raw)
 
     assert normalized == "[00:01.00][00:02.30]chorus"
 
@@ -99,7 +97,7 @@ def test_normalize_tags_handles_consecutive_start_tags_with_spaces_between() -> 
 def test_normalize_tags_preserves_non_leading_raw_like_tags() -> None:
     raw = "intro [00:01]line"
 
-    normalized = normalize_tags(raw)
+    normalized = _normalize(raw)
 
     assert normalized == "intro [00:01]line"
 
@@ -107,7 +105,7 @@ def test_normalize_tags_preserves_non_leading_raw_like_tags() -> None:
 def test_normalize_tags_removes_offset_tag_line_even_without_lyrics() -> None:
     raw = "[offset:+500]"
 
-    normalized = normalize_tags(raw)
+    normalized = _normalize(raw)
 
     assert normalized == ""
 
@@ -117,20 +115,20 @@ def test_is_synced_and_detect_sync_status_follow_non_zero_rule() -> None:
     unsynced_text = "[00:00.00]a\n[00:00.00]b"
     synced_text = "[00:00.00]a\n[00:01.00]b"
 
-    assert is_synced(plain_text) is False
-    assert detect_sync_status(plain_text) is CacheStatus.SUCCESS_UNSYNCED
+    assert LRCData(plain_text).is_synced() is False
+    assert LRCData(plain_text).detect_sync_status() is CacheStatus.SUCCESS_UNSYNCED
 
-    assert is_synced(unsynced_text) is False
-    assert detect_sync_status(unsynced_text) is CacheStatus.SUCCESS_UNSYNCED
+    assert LRCData(unsynced_text).is_synced() is False
+    assert LRCData(unsynced_text).detect_sync_status() is CacheStatus.SUCCESS_UNSYNCED
 
-    assert is_synced(synced_text) is True
-    assert detect_sync_status(synced_text) is CacheStatus.SUCCESS_SYNCED
+    assert LRCData(synced_text).is_synced() is True
+    assert LRCData(synced_text).detect_sync_status() is CacheStatus.SUCCESS_SYNCED
 
 
 def test_normalize_unsynced_covers_documented_blank_and_tag_rules() -> None:
     lyrics = "\n[00:12.34]first\nsecond\n\n[00:00.00]third"
 
-    normalized = normalize_unsynced(lyrics)
+    normalized = str(LRCData(lyrics).normalize_unsynced())
 
     assert normalized == "\n".join(
         [
@@ -152,7 +150,7 @@ def test_to_plain_duplicates_lines_by_leading_repeated_timestamps() -> None:
         ]
     )
 
-    plain = to_plain(text)
+    plain = LRCData(text).to_plain()
 
     # In synced mode, lines with standard tags are kept (including [00:00.00]),
     # while lines without leading standard tags are ignored.
@@ -171,7 +169,7 @@ def test_to_plain_deduplicate_collapses_only_consecutive_equals() -> None:
         ]
     )
 
-    plain = to_plain(text, deduplicate=True)
+    plain = LRCData(text).to_plain(deduplicate=True)
 
     assert plain == "\n".join(["hello", "", "world", "hello"])
 
@@ -179,14 +177,22 @@ def test_to_plain_deduplicate_collapses_only_consecutive_equals() -> None:
 def test_to_plain_fallback_for_non_synced_text_strips_start_tags() -> None:
     text = "\n".join(["[ar:Artist]", "[00:00.00]only-zero", "plain line"])
 
-    plain = to_plain(text)
+    plain = LRCData(text).to_plain()
 
     assert plain == "only-zero\nplain line"
 
 
 def test_to_plain_trims_leading_and_trailing_blank_lines() -> None:
-    text = "\n\n[00:01.00]line1\n\n[00:01.00]\n[00:02.00]line2\nline3\n\n"
+    text = "\n\n[00:01.00]line1\n\n[00:01.00]\n[00:02.00]line2\nline3\n   \n"
 
-    plain = to_plain(text)
+    plain = LRCData(text).to_plain()
 
     assert plain == "line1\n\nline2"
+
+
+def test_reformat_pipeline_trims_outer_blanks_and_preserves_inner_blanks() -> None:
+    text = "\n\n[00:01]a\n\n[00:02]b\n\n"
+
+    normalized = str(LRCData(text))
+
+    assert normalized == "[00:01.00]a\n\n[00:02.00]b"

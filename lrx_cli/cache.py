@@ -12,6 +12,7 @@ import unicodedata
 from typing import Optional
 from loguru import logger
 
+from .lrc import LRCData
 from .config import DURATION_TOLERANCE_MS
 from .models import TrackMeta, LyricResult, CacheStatus
 
@@ -161,7 +162,7 @@ class CacheEngine:
             )
             return LyricResult(
                 status=CacheStatus(status_str),
-                lyrics=lyrics,
+                lyrics=LRCData(lyrics) if lyrics else None,
                 source=src,
                 ttl=remaining,
             )
@@ -212,7 +213,7 @@ class CacheEngine:
                     key,
                     source,
                     result.status.value,
-                    result.lyrics,
+                    str(result.lyrics) if result.lyrics else None,
                     now,
                     expires_at,
                     track.artist,
@@ -316,7 +317,7 @@ class CacheEngine:
         row = dict(rows[0])
         return LyricResult(
             status=CacheStatus(row["status"]),
-            lyrics=row["lyrics"],
+            lyrics=LRCData(row["lyrics"]) if row["lyrics"] else None,
             source="cache-search",
         )
 

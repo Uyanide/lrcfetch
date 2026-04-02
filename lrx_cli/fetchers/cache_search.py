@@ -13,9 +13,11 @@ albums or is played from different players.
 from typing import Optional
 from loguru import logger
 
+
 from .base import BaseFetcher
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..cache import CacheEngine
+from ..lrc import LRCData
 
 
 class CacheSearchFetcher(BaseFetcher):
@@ -80,6 +82,6 @@ class CacheSearchFetcher(BaseFetcher):
         )
         return LyricResult(
             status=status,
-            lyrics=best["lyrics"],
+            lyrics=LRCData(best["lyrics"]),
             source=self.source_name,
         )

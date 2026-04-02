@@ -70,7 +70,7 @@ def _sanitize_lyric_text(text: str) -> str:
     return _remove_pattern(text, _WORD_SYNC_TAG_RE)
 
 
-def _reformat(text: str) -> str:
+def _reformat(text: str) -> list[str]:
     """Parse each line and reformat to standard [mm:ss.cc]...content form.
 
     Handles any mix of time tag formats on input. Lines with no time tags
@@ -99,83 +99,179 @@ def _reformat(text: str) -> str:
         else:
             out.append(line)
             # Empty lines with no tags are also preserved
-    return "\n".join(out)
+
+    # Remove empty lines at the start and end of the whole text, but preserve blank lines in the middle
+    while out and not out[0].strip():
+        out.pop(0)
+    while out and not out[-1].strip():
+        out.pop()
+
+    return out
 
 
-def _apply_offset(text: str) -> str:
-    """Parse [offset:±ms] and shift all standard [mm:ss.cc] tags accordingly.
+class LRCData:
+    _lines: list[str]
 
-    Per LRC spec, positive offset = lyrics appear sooner (subtract from timestamps).
-    """
-    m = _OFFSET_RE.search(text)
-    if not m:
-        return text
-    offset_ms = int(m.group(1))
-    text = _OFFSET_RE.sub("", text).strip("\n")
-    if offset_ms == 0:
-        return text
+    def __init__(self, text: str | None = None) -> None:
+        if not text:
+            self._lines = []
+            return
+        self._lines = _reformat(text)
+        self._apply_offset()
 
-    def _shift(match: re.Match) -> str:
-        total_ms = max(
-            0,
-            (int(match.group(1)) * 60 + int(match.group(2))) * 1000
-            + int(match.group(3)) * 10
-            - offset_ms,
+    def __str__(self) -> str:
+        return "\n".join(self._lines)
+
+    def __repr__(self) -> str:
+        return f"LRCData(lines={self._lines!r})"
+
+    def __bool__(self) -> bool:
+        return len(self._lines) > 0
+
+    def __len__(self) -> int:
+        return len(self._lines)
+
+    def _apply_offset(self):
+        """Parse [offset:±ms] and shift all standard [mm:ss.cc] tags accordingly.
+
+        Per LRC spec, positive offset = lyrics appear sooner (subtract from timestamps).
+        """
+        m: Optional[re.Match] = None
+        for i, line in enumerate(self._lines):
+            m = _OFFSET_RE.search(line)
+            if m:
+                self._lines.pop(i)
+                break
+        if not m:
+            return
+        offset_ms = int(m.group(1))
+        if offset_ms == 0:
+            return
+
+        def _shift(match: re.Match) -> str:
+            total_ms = max(
+                0,
+                (int(match.group(1)) * 60 + int(match.group(2))) * 1000
+                + int(match.group(3)) * 10
+                - offset_ms,
+            )
+            new_mm = total_ms // 60000
+            new_ss = (total_ms % 60000) // 1000
+            new_cs = min(round((total_ms % 1000) / 10), 99)
+            return f"[{new_mm:02d}:{new_ss:02d}.{new_cs:02d}]"
+
+        self._lines = [_STD_TAG_CAPTURE_RE.sub(_shift, line) for line in self._lines]
+
+    def is_synced(self) -> bool:
+        """Check whether text contains non-zero LRC time tags.
+
+        Assumes text has been normalized by normalize (standard [mm:ss.cc] format).
+        """
+        for line in self._lines:
+            for m in _STD_TAG_CAPTURE_RE.finditer(line):
+                if m.group(1) != "00" or m.group(2) != "00" or m.group(3) != "00":
+                    return True
+        return False
+
+    def detect_sync_status(self) -> CacheStatus:
+        """Determine whether lyrics contain meaningful LRC time tags.
+
+        Assumes text has been normalized by normalize.
+        """
+        return (
+            CacheStatus.SUCCESS_SYNCED
+            if self.is_synced()
+            else CacheStatus.SUCCESS_UNSYNCED
         )
-        new_mm = total_ms // 60000
-        new_ss = (total_ms % 60000) // 1000
-        new_cs = min(round((total_ms % 1000) / 10), 99)
-        return f"[{new_mm:02d}:{new_ss:02d}.{new_cs:02d}]"
 
-    return _STD_TAG_CAPTURE_RE.sub(_shift, text)
+    def normalize_unsynced(self):
+        """Normalize unsynced lyrics so every line has a [00:00.00] tag.
 
+        Assumes lyrics have been normalized by normalize.
+        - Lines that already have time tags: replace with [00:00.00]
+        - Lines without leading tags: prepend [00:00.00]
+        - Blank lines in middle are converted to [00:00.00]
+        """
+        out: list[str] = []
+        first = True
+        for i, line in enumerate(self._lines):
+            stripped = line.strip()
+            if not stripped and not first:
+                out.append("[00:00.00]")
+                continue
+            elif not stripped:
+                # Skip leading blank lines
+                continue
+            first = False
+            cleaned = _remove_pattern(line, _LINE_START_STD_TAGS_RE)
+            out.append(f"[00:00.00]{cleaned}")
+        ret = LRCData()
+        ret._lines = out
+        return ret
 
-def normalize_tags(text: str) -> str:
-    """Normalize LRC to standard form: reformat all tags to [mm:ss.cc], then apply offset."""
-    return _apply_offset(_reformat(text))
+    def to_plain(
+        self,
+        deduplicate: bool = False,
+    ) -> str:
+        """Convert lyrics to plain text with all tags stripped.
 
+        If deduplicate is True, only keep the first line of consecutive lines with the same lyric text (after stripping tags).
+        Otherwise, lines with multiple time tags will be duplicated as many times as the number of tags.
+        Assumes text has been normalized by normalize.
+        """
 
-def is_synced(text: str) -> bool:
-    """Check whether text contains non-zero LRC time tags.
+        if not self.is_synced():
+            return "\n".join(
+                _remove_pattern(line, _LINE_START_TAGS_RE) for line in self._lines
+            ).strip("\n")
 
-    Assumes text has been normalized by normalize (standard [mm:ss.cc] format).
-    """
-    tags = _STD_TAG_RE.findall(text)
-    return bool(tags) and any(tag != "[00:00.00]" for tag in tags)
+        lines = []
+        for line in self._lines:
+            pos = 0
+            cnt = 0
+            plain_line = ""
+            while True:
+                # Only match strictly repeated standard time tags at the start of the line
+                # Lines without any time tags are ignored.
+                # Lyric lines are considered already stripped of whitespaces, so no strips here.
+                m = _STD_TAG_RE.match(line, pos)
+                if not m:
+                    plain_line += line[pos:]
+                    break
+                pos = m.end()
+                cnt += 1
+            # Also avoid dulplicating blank lines
+            if deduplicate or not plain_line:
+                if cnt > 0:
+                    lines.append(plain_line)
+            else:
+                for _ in range(cnt):
+                    lines.append(plain_line)
 
+        if deduplicate:
+            # Remove consecutive duplicates
+            deduped_lines = []
+            prev_line = None
+            for line in lines:
+                if line != prev_line:
+                    deduped_lines.append(line)
+                prev_line = line
+            lines = deduped_lines
 
-def detect_sync_status(text: str) -> CacheStatus:
-    """Determine whether lyrics contain meaningful LRC time tags.
+        return "\n".join(lines).strip()
 
-    Assumes text has been normalized by normalize.
-    """
-    return (
-        CacheStatus.SUCCESS_SYNCED if is_synced(text) else CacheStatus.SUCCESS_UNSYNCED
-    )
+    def print_lyrics(
+        self,
+        plain: bool = False,
+    ) -> None:
+        """Print lyrics, optionally stripping tags.
 
-
-def normalize_unsynced(lyrics: str) -> str:
-    """Normalize unsynced lyrics so every line has a [00:00.00] tag.
-
-    Assumes lyrics have been normalized by normalize.
-    - Lines that already have time tags: replace with [00:00.00]
-    - Lines without leading tags: prepend [00:00.00]
-    - Blank lines in middle are converted to [00:00.00]
-    """
-    out: list[str] = []
-    first = True
-    for line in lyrics.splitlines():
-        stripped = line.strip()
-        if not stripped and not first:
-            out.append("[00:00.00]")
-            continue
-        elif not stripped:
-            # Skip leading blank lines
-            continue
-        first = False
-        cleaned = _remove_pattern(line, _LINE_START_STD_TAGS_RE)
-        out.append(f"[00:00.00]{cleaned}")
-    return "\n".join(out)
+        Assumes text has been normalized by normalize.
+        """
+        if plain:
+            print(self.to_plain())
+        else:
+            print("\n".join(self._lines))
 
 
 def get_audio_path(audio_url: str, ensure_exists: bool = False) -> Optional[Path]:
@@ -204,68 +300,3 @@ def get_sidecar_path(
     if ensure_exists and not lrc_path.exists():
         return None
     return lrc_path
-
-
-def to_plain(
-    text: str,
-    deduplicate: bool = False,
-) -> str:
-    """Convert lyrics to plain text with all tags stripped.
-
-    If deduplicate is True, only keep the first line of consecutive lines with the same lyric text (after stripping tags).
-    Otherwise, lines with multiple time tags will be duplicated as many times as the number of tags.
-    Assumes text has been normalized by normalize.
-    """
-
-    if not is_synced(text):
-        # If there are no meaningful time tags, just strip all tags and return
-        return _remove_pattern(text, _LINE_START_TAGS_RE)
-
-    lines = []
-    for line in text.splitlines():
-        pos = 0
-        cnt = 0
-        plain_line = ""
-        while True:
-            # Only match strictly repeated standard time tags at the start of the line
-            # Lines without any time tags are ignored.
-            # Lyric lines are considered already stripped of whitespaces, so no strips here.
-            m = _STD_TAG_RE.match(line, pos)
-            if not m:
-                plain_line += line[pos:]
-                break
-            pos = m.end()
-            cnt += 1
-        # Also avoid dulplicating blank lines
-        if deduplicate or not plain_line:
-            if cnt > 0:
-                lines.append(plain_line)
-        else:
-            for _ in range(cnt):
-                lines.append(plain_line)
-
-    if deduplicate:
-        # Remove consecutive duplicates
-        deduped_lines = []
-        prev_line = None
-        for line in lines:
-            if line != prev_line:
-                deduped_lines.append(line)
-            prev_line = line
-        lines = deduped_lines
-
-    return "\n".join(lines).strip("\n")
-
-
-def print_lyrics(
-    text: str,
-    plain: bool = False,
-) -> None:
-    """Print lyrics, optionally stripping tags.
-
-    Assumes text has been normalized by normalize.
-    """
-    if plain:
-        print(to_plain(text))
-    else:
-        print(text)

@@ -17,7 +17,7 @@ from mutagen.flac import FLAC
 
 from .base import BaseFetcher
 from ..models import TrackMeta, LyricResult
-from ..lrc import detect_sync_status, normalize_tags, get_audio_path, get_sidecar_path
+from ..lrc import get_audio_path, get_sidecar_path, LRCData
 
 
 class LocalFetcher(BaseFetcher):
@@ -48,11 +48,15 @@ class LocalFetcher(BaseFetcher):
                 with open(lrc_path, "r", encoding="utf-8") as f:
                     content = f.read().strip()
                 if content:
-                    content = normalize_tags(content)
-                    status = detect_sync_status(content)
-                    logger.info(f"Local: found .lrc sidecar ({status.value})")
+                    lrc = LRCData(content)
+                    status = lrc.detect_sync_status()
+                    logger.info(
+                        f"Local: found .lrc sidecar ({status.value}) for {audio_path.name}"
+                    )
                     return LyricResult(
-                        status=status, lyrics=content, source=self.source_name
+                        status=status,
+                        lyrics=lrc,
+                        source=self.source_name,
                     )
             except Exception as e:
                 logger.error(f"Local: error reading {lrc_path}: {e}")
@@ -81,12 +85,14 @@ class LocalFetcher(BaseFetcher):
                             break
 
                 if lyrics:
-                    lyrics = normalize_tags(lyrics.strip())
-                    status = detect_sync_status(lyrics)
-                    logger.info(f"Local: found embedded lyrics ({status.value})")
+                    lrc = LRCData(lyrics)
+                    status = lrc.detect_sync_status()
+                    logger.info(
+                        f"Local: found embedded lyrics ({status.value}) for {audio_path.name}"
+                    )
                     return LyricResult(
                         status=status,
-                        lyrics=lyrics,
+                        lyrics=lrc,
                         source=f"{self.source_name} (embedded)",
                     )
                 else:

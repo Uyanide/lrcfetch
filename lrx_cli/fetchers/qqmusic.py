@@ -17,7 +17,7 @@ from loguru import logger
 
 from .base import BaseFetcher
 from ..models import TrackMeta, LyricResult, CacheStatus
-from ..lrc import detect_sync_status, normalize_tags
+from ..lrc import LRCData
 from ..config import (
     HTTP_TIMEOUT,
     TTL_NOT_FOUND,
@@ -142,15 +142,13 @@ class QQMusicFetcher(BaseFetcher):
                 logger.debug(f"QQMusic: empty lyrics for mid={mid}")
                 return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
 
-            lrc = normalize_tags(lrc)
-            status = detect_sync_status(lrc)
+            lrcdata = LRCData(lrc)
+            status = lrcdata.detect_sync_status()
             logger.info(
                 f"QQMusic: got {status.value} lyrics for mid={mid} "
-                f"({len(lrc.splitlines())} lines)"
+                f"({len(lrcdata)} lines)"
             )
-            return LyricResult(
-                status=status, lyrics=lrc.strip(), source=self.source_name
-            )
+            return LyricResult(status=status, lyrics=lrcdata, source=self.source_name)
 
         except Exception as e:
             logger.error(f"QQMusic: lyric fetch failed for mid={mid}: {e}")

@@ -18,7 +18,7 @@ from .models import TrackMeta, CacheStatus
 from .mpris import get_current_track
 from .core import LrcManager
 from .fetchers import FetcherMethodType
-from .lrc import get_sidecar_path, print_lyrics, to_plain
+from .lrc import get_sidecar_path
 
 
 app = cyclopts.App(
@@ -120,7 +120,7 @@ def fetch(
         logger.error("Only unsynced lyrics available (--only-synced requested).")
         sys.exit(1)
 
-    print_lyrics(result.lyrics, plain=plain)
+    result.lyrics.print_lyrics(plain=plain)
 
 
 # search
@@ -208,7 +208,7 @@ def search(
         logger.error("Only unsynced lyrics available (--only-synced requested).")
         sys.exit(1)
 
-    print_lyrics(result.lyrics, plain=plain)
+    result.lyrics.print_lyrics(plain=plain)
 
 
 # export
@@ -282,9 +282,9 @@ def export(
     try:
         with open(output, "w", encoding="utf-8") as f:
             if plain:
-                f.write(to_plain(result.lyrics))
+                f.write(result.lyrics.to_plain())
             else:
-                f.write(result.lyrics)
+                f.write(str(result.lyrics))
         logger.info(f"Exported lyrics to {output}")
     except Exception as e:
         logger.error(f"Failed to write file: {e}")

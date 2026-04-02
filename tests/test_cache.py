@@ -100,7 +100,7 @@ def test_set_and_get_roundtrip_with_ttl(
 
     assert cached is not None
     assert cached.status is CacheStatus.SUCCESS_SYNCED
-    assert cached.lyrics == "[00:01.00]line"
+    assert str(cached.lyrics) == "[00:01.00]line"
     assert cached.source == "lrclib"
     assert cached.ttl == 120
 
@@ -181,7 +181,7 @@ def test_get_best_prefers_synced_over_unsynced_and_negative(
 
     assert best is not None
     assert best.status is CacheStatus.SUCCESS_SYNCED
-    assert best.lyrics == "synced"
+    assert str(best.lyrics) == "synced"
 
 
 def test_clear_track_and_clear_all_affect_expected_rows(cache_db: CacheEngine) -> None:
@@ -239,7 +239,7 @@ def test_find_best_positive_uses_exact_match_and_prefers_synced(
 
     assert best is not None
     assert best.status is CacheStatus.SUCCESS_SYNCED
-    assert best.lyrics == "s"
+    assert str(best.lyrics) == "s"
     # find_best_positive always reports cache-search source
     assert best.source == "cache-search"
 
