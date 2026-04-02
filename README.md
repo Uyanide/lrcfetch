@@ -1,10 +1,10 @@
 # LRX-CLI
 
-A CLI tool for fetching LRC lyrics on Linux. Automatically detects the currently playing track via MPRIS/DBus and retrieves synced (or plain with all time tags set to `[00:00.00]` if failed to find any synced) lyrics from multiple sources.
+A CLI tool for fetching LRC lyrics on Linux. Automatically detects the currently playing track via MPRIS/DBus and retrieves the best-matching lyrics from multiple sources, ranked by confidence scoring.
 
 ## Sources
 
-Lyrics are fetched using a fallback pipeline (first synced result wins):
+Sources are queried in order. High-confidence results (exact match or manual insert) terminate the pipeline early; otherwise all sources are tried and the highest-confidence result wins.
 
 1. **Local** — sidecar `.lrc` files or embedded audio metadata (FLAC, MP3)
 2. **Cache Search** — fuzzy cross-album lookup in local cache
@@ -43,25 +43,22 @@ See `lrx --help` for full command reference. Common use cases:
   lrx search --path "/path/to/Westlife - My Love.flac"
   ```
 
-- Export to sidecar `.lrc` file:
+- Export to sidecar `.lrc` file (or `.txt` with `--plain`):
 
   ```bash
   lrx export
-  ```
-
-  or to a custom path:
-
-  ```bash
+  lrx export --plain
   lrx export --output /path/to/lyrics.lrc
   ```
 
 - Cache management:
 
   ```bash
-  lrx cache stats        # show cache statistics
-  lrx cache query        # query cache for current track
-  lrx cache clear        # clears cache of current track
-  lrx cache clear --all  # clears entire cache
+  lrx cache stats                    # statistics with source×status table and confidence distribution
+  lrx cache query                    # inspect cache entries for current track
+  lrx cache clear                    # clear cache of current track
+  lrx cache clear --all              # clear entire cache
+  lrx cache confidence spotify 100   # manually set confidence for a source
   ```
 
 ## Configuration

@@ -402,6 +402,30 @@ def stats():
 
 
 @cache_app.command
+def confidence(
+    source: Annotated[
+        str, cyclopts.Parameter(help="Source to update (e.g. spotify, netease).")
+    ],
+    score: Annotated[float, cyclopts.Parameter(help="Confidence score (0-100).")],
+):
+    """Set confidence score for the current track's cache entry from a specific source."""
+    if not 0 <= score <= 100:
+        logger.error("Score must be between 0 and 100.")
+        sys.exit(1)
+
+    track = get_current_track(_player)
+    if not track:
+        logger.error("No active playing track found.")
+        sys.exit(1)
+
+    updated = manager.cache.update_confidence(track, score, source=source)
+    if updated:
+        print(f"Updated [{source}] confidence to {score:.0f}.")
+    else:
+        print(f"No cache entry found for [{source}].")
+
+
+@cache_app.command
 def insert(
     *,
     path: Annotated[

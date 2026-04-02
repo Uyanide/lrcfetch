@@ -305,6 +305,35 @@ def test_search_by_meta_fuzzy_rules_and_duration_sorting(cache_db: CacheEngine) 
     assert sources[-1] == "unknown-len"
 
 
+def test_update_confidence_targets_specific_source(cache_db: CacheEngine) -> None:
+    track = _track(artist="A", title="T", album="AL")
+    cache_db.set(track, "s1", _result(CacheStatus.SUCCESS_SYNCED, "x", "s1"))
+    cache_db.set(track, "s2", _result(CacheStatus.SUCCESS_UNSYNCED, "y", "s2"))
+
+    updated = cache_db.update_confidence(track, 75.0, "s1")
+
+    assert updated == 1
+    rows = {r["source"]: r for r in cache_db.query_track(track)}
+    assert rows["s1"]["confidence"] == 75.0
+    assert rows["s2"]["confidence"] == 100.0  # unchanged
+
+
+def test_update_confidence_returns_zero_for_missing_source(
+    cache_db: CacheEngine,
+) -> None:
+    track = _track(artist="A", title="T", album="AL")
+    cache_db.set(track, "s1", _result(CacheStatus.SUCCESS_SYNCED, "x", "s1"))
+
+    assert cache_db.update_confidence(track, 50.0, "nonexistent") == 0
+
+
+def test_update_confidence_returns_zero_for_empty_track(
+    cache_db: CacheEngine,
+) -> None:
+    empty = _track(artist=None, title=None, album=None, length=None)
+    assert cache_db.update_confidence(empty, 50.0, "s1") == 0
+
+
 def test_query_track_and_stats_return_expected_aggregates(
     cache_db: CacheEngine,
 ) -> None:

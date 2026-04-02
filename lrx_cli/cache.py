@@ -133,7 +133,7 @@ class CacheEngine:
                 elif status == CacheStatus.SUCCESS_UNSYNCED:
                     confidence = LEGACY_CONFIDENCE_UNSYNCED
                 else:
-                    confidence = 100.0  # negative statuses: value irrelevant
+                    confidence = 0.0  # negative statuses: no confidence
 
             return LyricResult(
                 status=status,
@@ -398,6 +398,32 @@ class CacheEngine:
             matches = [m for _, m in scored]
 
         return matches
+
+    # Update
+
+    def update_confidence(
+        self,
+        track: TrackMeta,
+        confidence: float,
+        source: str,
+    ) -> int:
+        """Update confidence for a specific source's cache entry matching *track*.
+
+        Returns the number of rows updated.
+        """
+        conditions, params = self._track_where(track)
+        if not conditions:
+            return 0
+        conditions.append("source = ?")
+        params.append(source)
+        where = " AND ".join(conditions)
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                f"UPDATE cache SET confidence = ? WHERE {where}",
+                [confidence] + params,
+            )
+            conn.commit()
+            return cur.rowcount
 
     # Query / inspect
 
