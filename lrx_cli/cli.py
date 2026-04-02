@@ -254,10 +254,15 @@ def export(
         logger.error("No lyrics available to export.")
         sys.exit(1)
 
+    # Output file extension
+    ext = ".lrc" if not plain else ".txt"
+    if output and not output.endswith(ext):
+        output += ext
+
     # Build default output path
     if not output:
         if track.url:
-            lrc_path = get_sidecar_path(track.url, ensure_exists=False)
+            lrc_path = get_sidecar_path(track.url, ensure_exists=False, extension=ext)
             if lrc_path:
                 output = str(lrc_path)
                 logger.info(f"Exporting to sidecar path: {output}")
@@ -265,9 +270,9 @@ def export(
     # Fallback to current directory with sanitized filename
     if not output:
         filename = (
-            f"{track.artist} - {track.title}.lrc"
+            f"{track.artist} - {track.title}{ext}"
             if track.artist and track.title
-            else "lyrics.lrc"
+            else "lyrics" + ext
         )
         # Sanitize filename
         filename = "".join(
