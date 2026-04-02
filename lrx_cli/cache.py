@@ -71,8 +71,7 @@ class CacheEngine:
                     expires_at INTEGER,
                     artist TEXT,
                     title TEXT,
-                    album TEXT,
-                    length INTEGER
+                    album TEXT
                 )
             """)
             # Migrations

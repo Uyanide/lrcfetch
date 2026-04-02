@@ -141,6 +141,8 @@ async def _fetch_metadata_dbus(
                         trackid = trackid.removeprefix("spotify:track:")
                     elif trackid.startswith("/com/spotify/track/"):
                         trackid = trackid.removeprefix("/com/spotify/track/")
+                    else:
+                        trackid = None
 
             # Extract length (usually microseconds)
             length = metadata.get("mpris:length", None)
