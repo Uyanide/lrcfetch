@@ -121,7 +121,7 @@ class LrcManager:
                 continue
 
             # Cache the result (skip for self-cached fetchers)
-            if not fetcher.self_cached:
+            if not fetcher.self_cached and not bypass_cache:
                 ttl = result.ttl or _STATUS_TTL.get(result.status, TTL_NOT_FOUND)
                 self.cache.set(track, source, result, ttl_seconds=ttl)
 
