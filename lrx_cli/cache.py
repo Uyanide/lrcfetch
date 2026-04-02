@@ -441,10 +441,53 @@ class CacheEngine:
                     "SELECT source, COUNT(*) FROM cache GROUP BY source"
                 ).fetchall()
             )
+            # Source × Status cross-tabulation
+            source_status = conn.execute(
+                "SELECT source, status, COUNT(*) FROM cache GROUP BY source, status"
+            ).fetchall()
+            # Confidence buckets (only for positive statuses)
+            confidence_rows = conn.execute(
+                "SELECT confidence FROM cache WHERE status IN (?, ?)",
+                (
+                    CacheStatus.SUCCESS_SYNCED.value,
+                    CacheStatus.SUCCESS_UNSYNCED.value,
+                ),
+            ).fetchall()
+
+        # Build source×status table: {source: {status: count}}
+        source_status_table: dict[str, dict[str, int]] = {}
+        for src, status, count in source_status:
+            source_status_table.setdefault(src, {})[status] = count
+
+        # Build confidence buckets
+        buckets = {
+            "legacy (NULL)": 0,
+            "0-24": 0,
+            "25-49": 0,
+            "50-79": 0,
+            "80-99": 0,
+            "100": 0,
+        }
+        for (conf,) in confidence_rows:
+            if conf is None:
+                buckets["legacy (NULL)"] += 1
+            elif conf >= 100:
+                buckets["100"] += 1
+            elif conf >= 80:
+                buckets["80-99"] += 1
+            elif conf >= 50:
+                buckets["50-79"] += 1
+            elif conf >= 25:
+                buckets["25-49"] += 1
+            else:
+                buckets["0-24"] += 1
+
         return {
             "total": total,
             "expired": expired,
             "active": total - expired,
             "by_status": by_status,
             "by_source": by_source,
+            "source_status": source_status_table,
+            "confidence_buckets": buckets,
         }

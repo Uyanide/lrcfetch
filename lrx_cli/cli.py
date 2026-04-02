@@ -354,14 +354,46 @@ def stats():
     print(f"Total entries : {s['total']}")
     print(f"Active        : {s['active']}")
     print(f"Expired       : {s['expired']}")
-    if s["by_status"]:
-        print("\nBy status:")
-        for status, count in s["by_status"].items():
-            print(f"  {status}: {count}")
-    if s["by_source"]:
-        print("\nBy source:")
-        for source, count in s["by_source"].items():
-            print(f"  {source}: {count}")
+
+    # Source × Status table
+    table = s.get("source_status", {})
+    if table:
+        all_statuses = sorted({st for row in table.values() for st in row})
+        # Short labels for column headers
+        short = {
+            "SUCCESS_SYNCED": "synced",
+            "SUCCESS_UNSYNCED": "unsynced",
+            "NOT_FOUND": "not_found",
+            "NETWORK_ERROR": "net_err",
+        }
+        headers = [short.get(st, st) for st in all_statuses]
+        sources = sorted(table.keys())
+        # Column widths
+        src_w = max(len(src) for src in sources)
+        src_w = max(src_w, 6)  # min width for "source" header
+        col_w = [max(len(h) if h else 0, 4) for h in headers]
+
+        print(
+            f"\n{'source':<{src_w}}  "
+            + "  ".join(f"{h:>{w}}" for h, w in zip(headers, col_w))
+        )
+        print("-" * src_w + "  " + "  ".join("-" * w for w in col_w))
+        for src in sources:
+            counts = [str(table[src].get(st, 0)) for st in all_statuses]
+            print(
+                f"{src:<{src_w}}  "
+                + "  ".join(f"{c:>{w}}" for c, w in zip(counts, col_w))
+            )
+
+    # Confidence distribution (positive entries only)
+    buckets = s.get("confidence_buckets", {})
+    non_empty = {k: v for k, v in buckets.items() if v > 0}
+    if non_empty:
+        label_w = max(len(k) for k in non_empty)
+        print("\nConfidence distribution (positive entries):")
+        for label, count in buckets.items():
+            if count > 0:
+                print(f"  {label:>{label_w}} : {count}")
 
 
 @cache_app.command
