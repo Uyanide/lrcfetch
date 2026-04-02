@@ -428,6 +428,7 @@ def _print_cache_row(row: dict, indent: str = "") -> None:
     created = row.get("created_at", 0)
     expires = row.get("expires_at")
     lyrics = row.get("lyrics", "")
+    confidence = row.get("confidence")
 
     name = f"{artist} - {title}" if artist and title else row.get("key", "?")
     print(f"{indent}[{source}] {name}")
@@ -450,6 +451,8 @@ def _print_cache_row(row: dict, indent: str = "") -> None:
     if lyrics:
         line_count = len(lyrics.splitlines())
         print(f"{indent}  Lyrics  : {line_count} lines")
+    if confidence is not None:
+        print(f"{indent}  Confidence: {confidence:.0f}")
 
 
 def run():

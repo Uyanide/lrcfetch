@@ -43,15 +43,15 @@ class NeteaseFetcher(BaseFetcher):
     def is_available(self, track: TrackMeta) -> bool:
         return bool(track.title)
 
-    def _search(self, track: TrackMeta, limit: int = 10) -> Optional[int]:
-        """Search Netease and return the best-matching song ID.
+    def _search(self, track: TrackMeta, limit: int = 10) -> tuple[Optional[int], float]:
+        """Search Netease and return the best-matching song ID with confidence.
 
         When ``track.length`` is available, candidates are ranked by duration
         difference and only accepted if within ``DURATION_TOLERANCE_MS``.
         """
         query = f"{track.artist or ''} {track.title or ''}".strip()
         if not query:
-            return None
+            return None, 0.0
 
         logger.debug(f"Netease: searching for '{query}' (limit={limit})")
 
@@ -70,17 +70,17 @@ class NeteaseFetcher(BaseFetcher):
                 logger.error(
                     f"Netease: search returned non-dict: {type(result).__name__}"
                 )
-                return None
+                return None, 0.0
 
             result_body = result.get("result")
             if not isinstance(result_body, dict):
                 logger.debug("Netease: search 'result' field missing or invalid")
-                return None
+                return None, 0.0
 
             songs = result_body.get("songs")
             if not isinstance(songs, list) or len(songs) == 0:
                 logger.debug("Netease: search returned 0 results")
-                return None
+                return None, 0.0
 
             logger.debug(f"Netease: search returned {len(songs)} candidates")
 
@@ -90,23 +90,37 @@ class NeteaseFetcher(BaseFetcher):
                     duration_ms=float(song["dt"])
                     if isinstance(song.get("dt"), int)
                     else None,
+                    title=song.get("name"),
+                    artist=", ".join(a.get("name", "") for a in song.get("ar", []))
+                    or None,
+                    album=(song.get("al") or {}).get("name"),
                 )
                 for song in songs
                 if isinstance(song, dict) and song.get("id") is not None
             ]
-            best_id = select_best(candidates, track.length)
+            best_id, confidence = select_best(
+                candidates,
+                track.length,
+                title=track.title,
+                artist=track.artist,
+                album=track.album,
+            )
             if best_id is not None:
-                logger.debug(f"Netease: selected id={best_id}")
-                return best_id
+                logger.debug(
+                    f"Netease: selected id={best_id} (confidence={confidence:.0f})"
+                )
+                return best_id, confidence
 
             logger.debug("Netease: no suitable candidate found")
-            return None
+            return None, 0.0
 
         except Exception as e:
             logger.error(f"Netease: search failed: {e}")
-            return None
+            return None, 0.0
 
-    def _get_lyric(self, song_id: int) -> Optional[LyricResult]:
+    def _get_lyric(
+        self, song_id: int, confidence: float = 0.0
+    ) -> Optional[LyricResult]:
         """Fetch lyrics for a given Netease song ID."""
         logger.debug(f"Netease: fetching lyrics for song_id={song_id}")
 
@@ -158,7 +172,12 @@ class NeteaseFetcher(BaseFetcher):
                 f"Netease: got {status.value} lyrics for song_id={song_id} "
                 f"({len(lrcdata)} lines)"
             )
-            return LyricResult(status=status, lyrics=lrcdata, source=self.source_name)
+            return LyricResult(
+                status=status,
+                lyrics=lrcdata,
+                source=self.source_name,
+                confidence=confidence,
+            )
 
         except Exception as e:
             logger.error(f"Netease: lyric fetch failed for song_id={song_id}: {e}")
@@ -174,9 +193,9 @@ class NeteaseFetcher(BaseFetcher):
             return None
 
         logger.info(f"Netease: fetching lyrics for {track.display_name()}")
-        song_id = self._search(track)
+        song_id, confidence = self._search(track)
         if not song_id:
             logger.debug(f"Netease: no match found for {track.display_name()}")
             return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
 
-        return self._get_lyric(song_id)
+        return self._get_lyric(song_id, confidence=confidence)

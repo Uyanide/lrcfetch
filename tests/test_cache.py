@@ -8,11 +8,10 @@ import pytest
 from lrx_cli.cache import (
     CacheEngine,
     _generate_key,
-    _normalize_artist,
-    _normalize_for_match,
 )
 from lrx_cli.config import DURATION_TOLERANCE_MS
 from lrx_cli.models import CacheStatus, LyricResult, TrackMeta
+from lrx_cli.lrc import LRCData
 
 
 def _track(
@@ -39,29 +38,13 @@ def _result(
     lyrics: str | None,
     source: str,
 ) -> LyricResult:
-    return LyricResult(status=status, lyrics=lyrics, source=source)
+    return LyricResult(status=status, lyrics=LRCData(lyrics), source=source)
 
 
 @pytest.fixture
 def cache_db(tmp_path: Path) -> CacheEngine:
     db_path = tmp_path / "cache.db"
     return CacheEngine(str(db_path))
-
-
-def test_normalize_for_match_covers_nfkc_punct_feat_and_whitespace() -> None:
-    text = "  Ｔｅｓｔ！  feat. SOMEONE  "
-
-    normalized = _normalize_for_match(text)
-
-    assert normalized == "test"
-
-
-def test_normalize_artist_splits_separators_and_sorts_parts() -> None:
-    artist = "B / A feat. C; D vs. E × F 、 G"
-
-    normalized = _normalize_artist(artist)
-
-    assert normalized == "a\0b\0d\0e\0f\0g"
 
 
 def test_generate_key_uses_spotify_trackid_and_url_fallback() -> None:
@@ -157,7 +140,7 @@ def test_get_backfills_missing_length_when_track_provides_it(
     assert row[0] == 200000
 
 
-def test_get_best_prefers_synced_over_unsynced_and_negative(
+def test_get_best_prefers_higher_confidence_and_skips_negative(
     cache_db: CacheEngine,
 ) -> None:
     track = _track()
@@ -314,7 +297,7 @@ def test_search_by_meta_fuzzy_rules_and_duration_sorting(cache_db: CacheEngine) 
     sources = [r["source"] for r in rows]
     assert "negative" not in sources
     assert "far-len" not in sources
-    # Sorted by duration diff, then synced before unsynced for equal diff.
+    # Sorted by duration diff, then confidence for equal diff.
     assert sources[0] == "seed"
     assert sources[1] == "close-synced"
     assert sources[2] == "close-unsynced"

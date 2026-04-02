@@ -35,11 +35,11 @@ class QQMusicFetcher(BaseFetcher):
     def is_available(self, track: TrackMeta) -> bool:
         return bool(track.title) and bool(QQ_MUSIC_API_URL)
 
-    def _search(self, track: TrackMeta, limit: int = 10) -> Optional[str]:
-        """Search QQ Music and return the best-matching song MID."""
+    def _search(self, track: TrackMeta, limit: int = 10) -> tuple[Optional[str], float]:
+        """Search QQ Music and return the best-matching song MID with confidence."""
         query = f"{track.artist or ''} {track.title or ''}".strip()
         if not query:
-            return None
+            return None, 0.0
 
         logger.debug(f"QQMusic: searching for '{query}' (limit={limit})")
 
@@ -54,12 +54,12 @@ class QQMusicFetcher(BaseFetcher):
 
             if data.get("code") != 0:
                 logger.error(f"QQMusic: search API error: {data}")
-                return None
+                return None, 0.0
 
             songs = data.get("data", {}).get("list", [])
             if not songs:
                 logger.debug("QQMusic: search returned 0 results")
-                return None
+                return None, 0.0
 
             logger.debug(f"QQMusic: search returned {len(songs)} candidates")
 
@@ -69,23 +69,35 @@ class QQMusicFetcher(BaseFetcher):
                     duration_ms=float(song["interval"]) * 1000
                     if isinstance(song.get("interval"), int)
                     else None,
+                    title=song.get("name"),
+                    artist=", ".join(s.get("name", "") for s in song.get("singer", []))
+                    or None,
+                    album=(song.get("album") or {}).get("name"),
                 )
                 for song in songs
                 if isinstance(song, dict) and song.get("mid") is not None
             ]
-            best_mid = select_best(candidates, track.length)
+            best_mid, confidence = select_best(
+                candidates,
+                track.length,
+                title=track.title,
+                artist=track.artist,
+                album=track.album,
+            )
             if best_mid is not None:
-                logger.debug(f"QQMusic: selected mid={best_mid}")
-                return best_mid
+                logger.debug(
+                    f"QQMusic: selected mid={best_mid} (confidence={confidence:.0f})"
+                )
+                return best_mid, confidence
 
             logger.debug("QQMusic: no suitable candidate found")
-            return None
+            return None, 0.0
 
         except Exception as e:
             logger.error(f"QQMusic: search failed: {e}")
-            return None
+            return None, 0.0
 
-    def _get_lyric(self, mid: str) -> Optional[LyricResult]:
+    def _get_lyric(self, mid: str, confidence: float = 0.0) -> Optional[LyricResult]:
         """Fetch lyrics for a given QQ Music song MID."""
         logger.debug(f"QQMusic: fetching lyrics for mid={mid}")
 
@@ -115,7 +127,12 @@ class QQMusicFetcher(BaseFetcher):
                 f"QQMusic: got {status.value} lyrics for mid={mid} "
                 f"({len(lrcdata)} lines)"
             )
-            return LyricResult(status=status, lyrics=lrcdata, source=self.source_name)
+            return LyricResult(
+                status=status,
+                lyrics=lrcdata,
+                source=self.source_name,
+                confidence=confidence,
+            )
 
         except Exception as e:
             logger.error(f"QQMusic: lyric fetch failed for mid={mid}: {e}")
@@ -135,9 +152,9 @@ class QQMusicFetcher(BaseFetcher):
             return None
 
         logger.info(f"QQMusic: fetching lyrics for {track.display_name()}")
-        mid = self._search(track)
+        mid, confidence = self._search(track)
         if not mid:
             logger.debug(f"QQMusic: no match found for {track.display_name()}")
             return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
 
-        return self._get_lyric(mid)
+        return self._get_lyric(mid, confidence=confidence)

@@ -126,10 +126,19 @@ class LrclibSearchFetcher(BaseFetcher):
                     else None,
                     is_synced=isinstance(item.get("syncedLyrics"), str)
                     and bool(item["syncedLyrics"].strip()),
+                    title=item.get("trackName"),
+                    artist=item.get("artistName"),
+                    album=item.get("albumName"),
                 )
                 for item in candidates
             ]
-            best = select_best(mapped, track.length)
+            best, confidence = select_best(
+                mapped,
+                track.length,
+                title=track.title,
+                artist=track.artist,
+                album=track.album,
+            )
             if best is None:
                 logger.debug("LRCLIB-search: no valid candidate found")
                 return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
@@ -139,20 +148,26 @@ class LrclibSearchFetcher(BaseFetcher):
 
             if isinstance(synced, str) and synced.strip():
                 lyrics = LRCData(synced)
-                logger.info(f"LRCLIB-search: got synced lyrics ({len(lyrics)} lines)")
+                logger.info(
+                    f"LRCLIB-search: got synced lyrics ({len(lyrics)} lines, confidence={confidence:.0f})"
+                )
                 return LyricResult(
                     status=CacheStatus.SUCCESS_SYNCED,
                     lyrics=lyrics,
                     source=self.source_name,
+                    confidence=confidence,
                 )
             elif isinstance(unsynced, str) and unsynced.strip():
                 lyrics = LRCData(unsynced)
-                logger.info(f"LRCLIB-search: got unsynced lyrics ({len(lyrics)} lines)")
+                logger.info(
+                    f"LRCLIB-search: got unsynced lyrics ({len(lyrics)} lines, confidence={confidence:.0f})"
+                )
                 return LyricResult(
                     status=CacheStatus.SUCCESS_UNSYNCED,
                     lyrics=lyrics,
                     source=self.source_name,
                     ttl=TTL_UNSYNCED,
+                    confidence=confidence,
                 )
             else:
                 logger.debug("LRCLIB-search: best candidate has empty lyrics")

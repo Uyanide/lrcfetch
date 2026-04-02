@@ -4,56 +4,21 @@ Date: 2026-03-25 10:18:03
 Description: SQLite-based lyric cache with per-source storage and TTL expiration
 """
 
-import re
 import sqlite3
 import hashlib
 import time
-import unicodedata
 from typing import Optional
 from loguru import logger
 
 from .lrc import LRCData
-from .config import DURATION_TOLERANCE_MS
-from .models import TrackMeta, LyricResult, CacheStatus
-
-# Punctuation to strip for fuzzy matching (ASCII + fullwidth + CJK brackets/symbols)
-_PUNCT_RE = re.compile(
-    r"[~!@#$%^&*()_+\-=\[\]{}|;:'\",.<>?/\\`"
-    r"～！＠＃＄％＾＆＊（）＿＋－＝【】｛｝｜；：＇＂，。＜＞？／＼｀"
-    r"「」『』《》〈〉〔〕·•‥…—–]"
+from .normalize import normalize_for_match as _normalize_for_match
+from .normalize import normalize_artist as _normalize_artist
+from .config import (
+    DURATION_TOLERANCE_MS,
+    LEGACY_CONFIDENCE_SYNCED,
+    LEGACY_CONFIDENCE_UNSYNCED,
 )
-_SPACE_RE = re.compile(r"\s+")
-# feat./ft./featuring and everything after (case-insensitive, word boundary)
-_FEAT_RE = re.compile(r"\s*(?:\bfeat\.?\b|\bft\.?\b|\bfeaturing\b).*", re.IGNORECASE)
-# Multi-artist separators: /, &, ×, x (surrounded by spaces), ;, 、, vs.
-_ARTIST_SEP_RE = re.compile(r"\s*(?:[/&;×、]|\bvs\.?\b|\bx\b)\s*", re.IGNORECASE)
-
-
-def _normalize_for_match(s: str) -> str:
-    """Normalize a string for fuzzy comparison.
-
-    Lowercases, NFKC-normalizes (fullwidth → halfwidth), strips punctuation,
-    and collapses whitespace.
-    """
-    s = unicodedata.normalize("NFKC", s).lower()
-    s = _FEAT_RE.sub("", s)
-    s = _PUNCT_RE.sub(" ", s)
-    s = _SPACE_RE.sub(" ", s).strip()
-    return s
-
-
-def _normalize_artist(s: str) -> str:
-    """Normalize an artist string: split by separators, normalize each, sort.
-
-    Splits first (on /, &, ;, ×, 、, vs., x), then strips feat./ft./featuring
-    from each part individually, so 'A feat. C / B' → ['a', 'b'] not just ['a'].
-    """
-    s = unicodedata.normalize("NFKC", s).lower()
-    parts = _ARTIST_SEP_RE.split(s)
-    normed = sorted(
-        {_normalize_for_match(p) for p in parts if _FEAT_RE.sub("", p).strip()}
-    )
-    return "\0".join(normed) if normed else _normalize_for_match(s)
+from .models import TrackMeta, LyricResult, CacheStatus
 
 
 def _generate_key(track: TrackMeta, source: str) -> str:
@@ -110,10 +75,12 @@ class CacheEngine:
                     length INTEGER
                 )
             """)
-            # Migration: add length column if missing
+            # Migrations
             cols = {r[1] for r in conn.execute("PRAGMA table_info(cache)").fetchall()}
             if "length" not in cols:
                 conn.execute("ALTER TABLE cache ADD COLUMN length INTEGER")
+            if "confidence" not in cols:
+                conn.execute("ALTER TABLE cache ADD COLUMN confidence REAL")
             conn.commit()
 
     # Read
@@ -130,7 +97,7 @@ class CacheEngine:
 
         with sqlite3.connect(self.db_path) as conn:
             row = conn.execute(
-                "SELECT status, lyrics, source, expires_at, length FROM cache WHERE key = ?",
+                "SELECT status, lyrics, source, expires_at, length, confidence FROM cache WHERE key = ?",
                 (key,),
             ).fetchone()
 
@@ -138,7 +105,7 @@ class CacheEngine:
                 logger.debug(f"Cache miss: {source} / {track.display_name()}")
                 return None
 
-            status_str, lyrics, src, expires_at, cached_length = row
+            status_str, lyrics, src, expires_at, cached_length, confidence = row
 
             # Check TTL expiration
             if expires_at and expires_at < int(time.time()):
@@ -160,15 +127,27 @@ class CacheEngine:
                 f"Cache hit: {source} / {track.display_name()} "
                 f"[{status_str}, ttl={remaining}s]"
             )
+            status = CacheStatus(status_str)
+            if confidence is None and status in (
+                CacheStatus.SUCCESS_SYNCED,
+                CacheStatus.SUCCESS_UNSYNCED,
+            ):
+                confidence = (
+                    LEGACY_CONFIDENCE_SYNCED
+                    if status == CacheStatus.SUCCESS_SYNCED
+                    else LEGACY_CONFIDENCE_UNSYNCED
+                )
+
             return LyricResult(
-                status=CacheStatus(status_str),
+                status=status,
                 lyrics=LRCData(lyrics) if lyrics else None,
                 source=src,
                 ttl=remaining,
+                confidence=confidence,
             )
 
     def get_best(self, track: TrackMeta, sources: list[str]) -> Optional[LyricResult]:
-        """Return the best cached result across *sources* (synced > unsynced).
+        """Return the best cached result across *sources* by confidence.
 
         Skips negative statuses (NOT_FOUND, NETWORK_ERROR) — those are only
         consulted per-source to avoid redundant fetches.
@@ -178,10 +157,20 @@ class CacheEngine:
             cached = self.get(track, src)
             if not cached:
                 continue
-            if cached.status == CacheStatus.SUCCESS_SYNCED:
-                return cached  # Can't do better
-            if cached.status == CacheStatus.SUCCESS_UNSYNCED and best is None:
+            if cached.status not in (
+                CacheStatus.SUCCESS_SYNCED,
+                CacheStatus.SUCCESS_UNSYNCED,
+            ):
+                continue
+            if best is None:
                 best = cached
+            else:
+                cached_conf = (
+                    cached.confidence if cached.confidence is not None else 100.0
+                )
+                best_conf = best.confidence if best.confidence is not None else 100.0
+                if cached_conf > best_conf:
+                    best = cached
         return best
 
     # Write
@@ -207,8 +196,8 @@ class CacheEngine:
             conn.execute(
                 """INSERT OR REPLACE INTO cache
                    (key, source, status, lyrics, created_at, expires_at,
-                    artist, title, album, length)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    artist, title, album, length, confidence)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     key,
                     source,
@@ -220,6 +209,7 @@ class CacheEngine:
                     track.title,
                     track.album,
                     track.length,
+                    result.confidence,
                 ),
             )
             conn.commit()
@@ -288,7 +278,7 @@ class CacheEngine:
         """Find the best positive (synced/unsynced) cache entry for *track*.
 
         Uses exact metadata match (artist + title + album) across all sources.
-        Returns synced if available, otherwise unsynced, or None.
+        Returns the highest-confidence entry, or None.
         """
         conditions, params = self._track_where(track)
         if not conditions:
@@ -306,19 +296,34 @@ class CacheEngine:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                f"SELECT status, lyrics, source FROM cache WHERE {where} "
-                "ORDER BY CASE status WHEN ? THEN 0 ELSE 1 END LIMIT 1",
-                params + [CacheStatus.SUCCESS_SYNCED.value],
+                f"SELECT status, lyrics, source, confidence FROM cache WHERE {where} "
+                "ORDER BY COALESCE(confidence, "
+                "  CASE status WHEN ? THEN ? ELSE ? END"
+                ") DESC, created_at DESC LIMIT 1",
+                params
+                + [
+                    CacheStatus.SUCCESS_SYNCED.value,
+                    LEGACY_CONFIDENCE_SYNCED,
+                    LEGACY_CONFIDENCE_UNSYNCED,
+                ],
             ).fetchall()
 
         if not rows:
             return None
 
         row = dict(rows[0])
+        confidence = row["confidence"]
+        if confidence is None:
+            confidence = (
+                LEGACY_CONFIDENCE_SYNCED
+                if row["status"] == CacheStatus.SUCCESS_SYNCED.value
+                else LEGACY_CONFIDENCE_UNSYNCED
+            )
         return LyricResult(
             status=CacheStatus(row["status"]),
             lyrics=LRCData(row["lyrics"]) if row["lyrics"] else None,
             source="cache-search",
+            confidence=confidence,
         )
 
     # Fuzzy search
@@ -384,7 +389,8 @@ class CacheEngine:
             scored.sort(
                 key=lambda x: (
                     x[0],
-                    x[1].get("status") != CacheStatus.SUCCESS_SYNCED.value,
+                    -(x[1].get("confidence") or 0),
+                    -(x[1].get("created_at") or 0),
                 )
             )
             matches = [m for _, m in scored]

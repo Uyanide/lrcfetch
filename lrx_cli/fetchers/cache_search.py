@@ -64,16 +64,26 @@ class CacheSearchFetcher(BaseFetcher):
             logger.debug(f"Cache-search: no match for {track.display_name()}")
             return None
 
-        # Pick best: prefer synced, then first available
+        # Pick best by confidence scoring
         candidates = [
             SearchCandidate(
                 item=m,
+                duration_ms=float(m["length"]) if m.get("length") else None,
                 is_synced=m.get("status") == CacheStatus.SUCCESS_SYNCED.value,
+                title=m.get("title"),
+                artist=m.get("artist"),
+                album=m.get("album"),
             )
             for m in matches
             if m.get("lyrics")
         ]
-        best = select_best(candidates, track.length)
+        best, confidence = select_best(
+            candidates,
+            track.length,
+            title=track.title,
+            artist=track.artist,
+            album=track.album,
+        )
 
         if not best:
             return None
@@ -81,10 +91,11 @@ class CacheSearchFetcher(BaseFetcher):
         status = CacheStatus(best["status"])
         logger.info(
             f"Cache-search: fuzzy hit from [{best.get('source')}] "
-            f"album={best.get('album')!r} ({status.value})"
+            f"album={best.get('album')!r} ({status.value}, confidence={confidence:.0f})"
         )
         return LyricResult(
             status=status,
             lyrics=LRCData(best["lyrics"]),
             source=self.source_name,
+            confidence=confidence,
         )

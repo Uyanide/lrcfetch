@@ -9,7 +9,7 @@ Fetch pipeline:
   1. Check cache for each source in the fallback sequence
   2. For sources without a valid cache hit, call the fetcher
   3. Cache every result (success, not-found, or error) per source
-  4. Return the best result (synced > unsynced > None)
+  4. Return the best result by confidence (highest wins)
 """
 
 from typing import Optional
@@ -19,7 +19,13 @@ from .fetchers import FetcherMethodType, create_fetchers
 from .fetchers.base import BaseFetcher
 from .cache import CacheEngine
 from .lrc import LRCData
-from .config import TTL_SYNCED, TTL_UNSYNCED, TTL_NOT_FOUND, TTL_NETWORK_ERROR
+from .config import (
+    TTL_SYNCED,
+    TTL_UNSYNCED,
+    TTL_NOT_FOUND,
+    TTL_NETWORK_ERROR,
+    HIGH_CONFIDENCE,
+)
 from .models import TrackMeta, LyricResult, CacheStatus
 from .enrichers import enrich_track
 
@@ -31,6 +37,18 @@ _STATUS_TTL: dict[CacheStatus, Optional[int]] = {
     CacheStatus.NOT_FOUND: TTL_NOT_FOUND,
     CacheStatus.NETWORK_ERROR: TTL_NETWORK_ERROR,
 }
+
+
+def _is_better(new: LyricResult, old: LyricResult) -> bool:
+    """Compare two results by confidence only.
+
+    Synced/unsynced preference is already baked into the confidence score
+    (synced bonus in scoring weights), so we don't need a separate tier.
+    None confidence = trusted = 100.
+    """
+    new_conf = new.confidence if new.confidence is not None else 100.0
+    old_conf = old.confidence if old.confidence is not None else 100.0
+    return new_conf > old_conf
 
 
 class LrcManager:
@@ -72,7 +90,7 @@ class LrcManager:
         - Cache miss or unsynced → call fetcher, then cache the result
 
         After all sources are tried, returns the best result found
-        (synced > unsynced > None).
+        (highest confidence wins).
         """
         track = enrich_track(track)
         logger.info(f"Fetching lyrics for: {track.display_name()}")
@@ -81,7 +99,7 @@ class LrcManager:
         if not sequence:
             return None
 
-        # Best result seen so far (synced wins over unsynced)
+        # Best result seen so far (highest confidence wins)
         best_result: Optional[LyricResult] = None
 
         for fetcher in sequence:
@@ -91,17 +109,7 @@ class LrcManager:
             if not bypass_cache and not fetcher.self_cached:
                 cached = self.cache.get(track, source)
                 if cached:
-                    if cached.status == CacheStatus.SUCCESS_SYNCED:
-                        logger.info(f"[{source}] cache hit: synced lyrics")
-                        return cached
-                    elif cached.status == CacheStatus.SUCCESS_UNSYNCED:
-                        logger.debug(
-                            f"[{source}] cache hit: unsynced lyrics (continuing)"
-                        )
-                        if best_result is None:
-                            best_result = cached
-                        continue  # Try next source for synced
-                    elif cached.status in (
+                    if cached.status in (
                         CacheStatus.NOT_FOUND,
                         CacheStatus.NETWORK_ERROR,
                     ):
@@ -109,6 +117,23 @@ class LrcManager:
                             f"[{source}] cache hit: {cached.status.value}, skipping"
                         )
                         continue
+
+                    # Positive cache hit — apply the same confidence evaluation
+                    # as fresh fetches so that low-confidence cached results
+                    # don't block better results from later fetchers.
+                    is_trusted = (
+                        cached.confidence is None
+                        or cached.confidence >= HIGH_CONFIDENCE
+                    )
+                    logger.info(
+                        f"[{source}] cache hit: {cached.status.value}"
+                        f" (confidence={'trusted' if cached.confidence is None else f'{cached.confidence:.0f}'})"
+                    )
+                    if cached.status == CacheStatus.SUCCESS_SYNCED and is_trusted:
+                        return cached
+                    if best_result is None or _is_better(cached, best_result):
+                        best_result = cached
+                    continue
             elif not fetcher.self_cached:
                 logger.debug(f"[{source}] cache bypassed")
 
@@ -126,20 +151,28 @@ class LrcManager:
                 self.cache.set(track, source, result, ttl_seconds=ttl)
 
             # Evaluate result
-            if result.status == CacheStatus.SUCCESS_SYNCED:
-                logger.info(f"[{source}] got synced lyrics")
-                return result
-
-            if result.status == CacheStatus.SUCCESS_UNSYNCED:
-                logger.debug(f"[{source}] got unsynced lyrics (continuing)")
-                if best_result is None:
+            if result.status in (
+                CacheStatus.SUCCESS_SYNCED,
+                CacheStatus.SUCCESS_UNSYNCED,
+            ):
+                is_trusted = (
+                    result.confidence is None or result.confidence >= HIGH_CONFIDENCE
+                )
+                logger.info(
+                    f"[{source}] got {result.status.value} lyrics"
+                    f" (confidence={'trusted' if result.confidence is None else f'{result.confidence:.0f}'})"
+                )
+                # Trusted synced → return immediately
+                if result.status == CacheStatus.SUCCESS_SYNCED and is_trusted:
+                    return result
+                # Track best result by confidence
+                if best_result is None or _is_better(result, best_result):
                     best_result = result
 
             # NOT_FOUND / NETWORK_ERROR: already cached, try next
 
         # Return best available
         if best_result:
-            # Normalize unsynced lyrics: set all timestamps to [00:00.00]
             if (
                 best_result.status == CacheStatus.SUCCESS_UNSYNCED
                 and best_result.lyrics
@@ -149,10 +182,10 @@ class LrcManager:
                     lyrics=best_result.lyrics.normalize_unsynced(),
                     source=best_result.source,
                     ttl=best_result.ttl,
+                    confidence=best_result.confidence,
                 )
             logger.info(
-                f"Returning unsynced lyrics from {best_result.source} "
-                f"(no synced source found)"
+                f"Returning {best_result.status.value} lyrics from {best_result.source}"
             )
         else:
             logger.info(f"No lyrics found for {track.display_name()}")

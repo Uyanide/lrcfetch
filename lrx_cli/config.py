@@ -38,6 +38,21 @@ TTL_NETWORK_ERROR = 3600  # 1 hour
 # Search
 DURATION_TOLERANCE_MS = 3000  # max duration mismatch for search matching
 
+# Confidence scoring weights (sum to 100)
+SCORE_W_TITLE = 40.0
+SCORE_W_ARTIST = 30.0
+SCORE_W_ALBUM = 10.0
+SCORE_W_DURATION = 10.0
+SCORE_W_SYNCED = 10.0
+
+# Confidence thresholds
+MIN_CONFIDENCE = 25.0  # below this, candidate is rejected
+HIGH_CONFIDENCE = 80.0  # at or above this, stop searching early
+
+# Legacy cache rows (no confidence stored) get a base score by sync status
+LEGACY_CONFIDENCE_SYNCED = 50.0
+LEGACY_CONFIDENCE_UNSYNCED = 40.0
+
 # Spotify related
 SPOTIFY_TOKEN_URL = "https://open.spotify.com/api/token"
 SPOTIFY_LYRICS_URL = "https://spclient.wg.spotify.com/color-lyrics/v2/track/"
