@@ -15,6 +15,7 @@ from loguru import logger
 from urllib.parse import urlencode
 
 from .base import BaseFetcher
+from .selection import SearchCandidate, select_best
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..lrc import LRCData
 from ..config import (
@@ -22,7 +23,6 @@ from ..config import (
     TTL_UNSYNCED,
     TTL_NOT_FOUND,
     TTL_NETWORK_ERROR,
-    DURATION_TOLERANCE_MS,
     LRCLIB_SEARCH_URL,
     UA_LRX,
 )
@@ -36,6 +36,34 @@ class LrclibSearchFetcher(BaseFetcher):
     def is_available(self, track: TrackMeta) -> bool:
         return bool(track.title)
 
+    def _build_queries(self, track: TrackMeta) -> list[dict[str, str]]:
+        """Build up to 4 query param sets, from most specific to least.
+
+        1. title + artist + album (if all present)
+        2. title + artist (if artist present)
+        3. title + album (if album present)
+        4. title only
+        """
+        assert track.title is not None
+        title = track.title
+        queries: list[dict[str, str]] = []
+
+        if track.artist and track.album:
+            queries.append(
+                {
+                    "track_name": title,
+                    "artist_name": track.artist,
+                    "album_name": track.album,
+                }
+            )
+        if track.artist:
+            queries.append({"track_name": title, "artist_name": track.artist})
+        if track.album:
+            queries.append({"track_name": title, "album_name": track.album})
+        queries.append({"track_name": title})
+
+        return queries
+
     def fetch(
         self, track: TrackMeta, bypass_cache: bool = False
     ) -> Optional[LyricResult]:
@@ -44,40 +72,68 @@ class LrclibSearchFetcher(BaseFetcher):
             logger.debug("LRCLIB-search: skipped — no title")
             return None
 
-        params: dict[str, str] = {"track_name": track.title}
-        if track.artist:
-            params["artist_name"] = track.artist
-        if track.album:
-            params["album_name"] = track.album
-
-        url = f"{LRCLIB_SEARCH_URL}?{urlencode(params)}"
+        queries = self._build_queries(track)
         logger.info(f"LRCLIB-search: searching for {track.display_name()}")
+
+        seen_ids: set[int] = set()
+        candidates: list[dict] = []
+        had_error = False
 
         try:
             with httpx.Client(timeout=HTTP_TIMEOUT) as client:
-                resp = client.get(url, headers={"User-Agent": UA_LRX})
+                for params in queries:
+                    url = f"{LRCLIB_SEARCH_URL}?{urlencode(params)}"
+                    logger.debug(f"LRCLIB-search: query {params}")
+                    resp = client.get(url, headers={"User-Agent": UA_LRX})
 
-            if resp.status_code != 200:
-                logger.error(f"LRCLIB-search: API returned {resp.status_code}")
-                return LyricResult(
-                    status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR
-                )
+                    if resp.status_code != 200:
+                        logger.error(f"LRCLIB-search: API returned {resp.status_code}")
+                        had_error = True
+                        continue
 
-            data = resp.json()
+                    data = resp.json()
+                    if not isinstance(data, list):
+                        continue
 
-            if not isinstance(data, list) or len(data) == 0:
+                    for item in data:
+                        if not isinstance(item, dict):
+                            continue
+                        item_id = item.get("id")
+                        if item_id is not None and item_id in seen_ids:
+                            continue
+                        if item_id is not None:
+                            seen_ids.add(item_id)
+                        candidates.append(item)
+
+            if not candidates:
+                if had_error:
+                    return LyricResult(
+                        status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR
+                    )
                 logger.debug(f"LRCLIB-search: no results for {track.display_name()}")
                 return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
 
-            logger.debug(f"LRCLIB-search: got {len(data)} candidates")
+            logger.debug(
+                f"LRCLIB-search: got {len(candidates)} unique candidates "
+                f"from {len(queries)} queries"
+            )
 
-            # Select best match by duration
-            best = self._select_best(data, track)
+            mapped = [
+                SearchCandidate(
+                    item=item,
+                    duration_ms=item["duration"] * 1000
+                    if isinstance(item.get("duration"), (int, float))
+                    else None,
+                    is_synced=isinstance(item.get("syncedLyrics"), str)
+                    and bool(item["syncedLyrics"].strip()),
+                )
+                for item in candidates
+            ]
+            best = select_best(mapped, track.length)
             if best is None:
                 logger.debug("LRCLIB-search: no valid candidate found")
                 return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
 
-            # Extract lyrics
             synced = best.get("syncedLyrics")
             unsynced = best.get("plainLyrics")
 
@@ -108,57 +164,3 @@ class LrclibSearchFetcher(BaseFetcher):
         except Exception as e:
             logger.error(f"LRCLIB-search: unexpected error: {e}")
             return None
-
-    @staticmethod
-    def _select_best(candidates: list[dict], track: TrackMeta) -> Optional[dict]:
-        """Pick the best candidate, preferring synced lyrics and closest duration."""
-        if track.length is not None:
-            track_s = track.length / 1000.0
-            best: Optional[dict] = None
-            best_diff = float("inf")
-
-            for item in candidates:
-                if not isinstance(item, dict):
-                    continue
-                duration = item.get("duration")
-                if not isinstance(duration, (int, float)):
-                    continue
-                diff = abs(duration - track_s) * 1000  # compare in ms
-                if diff > DURATION_TOLERANCE_MS:
-                    continue
-                # Prefer synced over unsynced at similar duration
-                has_synced = (
-                    isinstance(item.get("syncedLyrics"), str)
-                    and item["syncedLyrics"].strip()
-                )
-                best_synced = (
-                    best is not None
-                    and isinstance(best.get("syncedLyrics"), str)
-                    and best["syncedLyrics"].strip()
-                )
-                if diff < best_diff or (
-                    diff == best_diff and has_synced and not best_synced
-                ):
-                    best_diff = diff
-                    best = item
-
-            if best is not None:
-                logger.debug(
-                    f"LRCLIB-search: selected id={best.get('id')} (diff={best_diff:.0f}ms)"
-                )
-                return best
-
-            logger.debug(
-                f"LRCLIB-search: no candidate within {DURATION_TOLERANCE_MS}ms"
-            )
-            return None
-
-        # No duration — pick first with synced lyrics, or just first
-        for item in candidates:
-            if (
-                isinstance(item, dict)
-                and isinstance(item.get("syncedLyrics"), str)
-                and item["syncedLyrics"].strip()
-            ):
-                return item
-        return candidates[0] if isinstance(candidates[0], dict) else None

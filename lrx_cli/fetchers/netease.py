@@ -17,13 +17,13 @@ import httpx
 from loguru import logger
 
 from .base import BaseFetcher
+from .selection import SearchCandidate, select_best
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..lrc import LRCData
 from ..config import (
     HTTP_TIMEOUT,
     TTL_NOT_FOUND,
     TTL_NETWORK_ERROR,
-    DURATION_TOLERANCE_MS,
     NETEASE_SEARCH_URL,
     NETEASE_LYRIC_URL,
     UA_BROWSER,
@@ -84,52 +84,23 @@ class NeteaseFetcher(BaseFetcher):
 
             logger.debug(f"Netease: search returned {len(songs)} candidates")
 
-            # Duration-based best-match selection
-            if track.length is not None:
-                track_ms = track.length
-                best_id: Optional[int] = None
-                best_diff = float("inf")
-
-                for song in songs:
-                    if not isinstance(song, dict):
-                        continue
-                    sid = song.get("id")
-                    name = song.get("name", "?")
-                    duration = song.get("dt")  # milliseconds
-                    if not isinstance(duration, int):
-                        logger.debug(
-                            f"  candidate {sid} '{name}': no duration, skipped"
-                        )
-                        continue
-                    diff = abs(duration - track_ms)
-                    logger.debug(
-                        f"  candidate {sid} '{name}': "
-                        f"duration={duration}ms, diff={diff}ms"
-                    )
-                    if diff < best_diff:
-                        best_diff = diff
-                        best_id = sid
-
-                if best_id is not None and best_diff <= DURATION_TOLERANCE_MS:
-                    logger.debug(f"Netease: selected id={best_id} (diff={best_diff}ms)")
-                    return best_id
-
-                logger.debug(
-                    f"Netease: no candidate within {DURATION_TOLERANCE_MS}ms "
-                    f"(best diff={best_diff}ms)"
+            candidates = [
+                SearchCandidate(
+                    item=song.get("id"),
+                    duration_ms=float(song["dt"])
+                    if isinstance(song.get("dt"), int)
+                    else None,
                 )
-                return None
+                for song in songs
+                if isinstance(song, dict) and song.get("id") is not None
+            ]
+            best_id = select_best(candidates, track.length)
+            if best_id is not None:
+                logger.debug(f"Netease: selected id={best_id}")
+                return best_id
 
-            # No duration info — take the first result
-            first = songs[0]
-            if not isinstance(first, dict) or "id" not in first:
-                logger.error("Netease: first search result has no 'id'")
-                return None
-            logger.debug(
-                f"Netease: no duration available, using first result "
-                f"id={first['id']} '{first.get('name', '?')}'"
-            )
-            return first["id"]
+            logger.debug("Netease: no suitable candidate found")
+            return None
 
         except Exception as e:
             logger.error(f"Netease: search failed: {e}")

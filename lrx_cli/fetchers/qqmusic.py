@@ -16,13 +16,13 @@ import httpx
 from loguru import logger
 
 from .base import BaseFetcher
+from .selection import SearchCandidate, select_best
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..lrc import LRCData
 from ..config import (
     HTTP_TIMEOUT,
     TTL_NOT_FOUND,
     TTL_NETWORK_ERROR,
-    DURATION_TOLERANCE_MS,
     QQ_MUSIC_API_URL,
 )
 
@@ -63,56 +63,23 @@ class QQMusicFetcher(BaseFetcher):
 
             logger.debug(f"QQMusic: search returned {len(songs)} candidates")
 
-            # Duration-based best-match selection
-            if track.length is not None:
-                track_ms = track.length
-                best_mid: Optional[str] = None
-                best_diff = float("inf")
-
-                for song in songs:
-                    if not isinstance(song, dict):
-                        continue
-                    mid = song.get("mid")
-                    name = song.get("name", "?")
-                    # interval is in seconds
-                    interval = song.get("interval")
-                    if not isinstance(interval, int):
-                        logger.debug(
-                            f"  candidate {mid} '{name}': no duration, skipped"
-                        )
-                        continue
-                    duration_ms = interval * 1000
-                    diff = abs(duration_ms - track_ms)
-                    logger.debug(
-                        f"  candidate {mid} '{name}': "
-                        f"duration={duration_ms}ms, diff={diff}ms"
-                    )
-                    if diff < best_diff:
-                        best_diff = diff
-                        best_mid = mid
-
-                if best_mid is not None and best_diff <= DURATION_TOLERANCE_MS:
-                    logger.debug(
-                        f"QQMusic: selected mid={best_mid} (diff={best_diff}ms)"
-                    )
-                    return best_mid
-
-                logger.debug(
-                    f"QQMusic: no candidate within {DURATION_TOLERANCE_MS}ms "
-                    f"(best diff={best_diff}ms)"
+            candidates = [
+                SearchCandidate(
+                    item=song.get("mid"),
+                    duration_ms=float(song["interval"]) * 1000
+                    if isinstance(song.get("interval"), int)
+                    else None,
                 )
-                return None
+                for song in songs
+                if isinstance(song, dict) and song.get("mid") is not None
+            ]
+            best_mid = select_best(candidates, track.length)
+            if best_mid is not None:
+                logger.debug(f"QQMusic: selected mid={best_mid}")
+                return best_mid
 
-            # No duration info — take the first result
-            first = songs[0]
-            if not isinstance(first, dict) or "mid" not in first:
-                logger.error("QQMusic: first search result has no 'mid'")
-                return None
-            logger.debug(
-                f"QQMusic: no duration available, using first result "
-                f"mid={first['mid']} '{first.get('name', '?')}'"
-            )
-            return first["mid"]
+            logger.debug("QQMusic: no suitable candidate found")
+            return None
 
         except Exception as e:
             logger.error(f"QQMusic: search failed: {e}")

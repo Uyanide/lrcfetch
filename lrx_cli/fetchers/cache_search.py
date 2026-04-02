@@ -15,6 +15,7 @@ from loguru import logger
 
 
 from .base import BaseFetcher
+from .selection import SearchCandidate, select_best
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..cache import CacheEngine
 from ..lrc import LRCData
@@ -64,15 +65,17 @@ class CacheSearchFetcher(BaseFetcher):
             return None
 
         # Pick best: prefer synced, then first available
-        best = None
-        for m in matches:
-            if m.get("status") == CacheStatus.SUCCESS_SYNCED.value:
-                best = m
-                break
-            if best is None:
-                best = m
+        candidates = [
+            SearchCandidate(
+                item=m,
+                is_synced=m.get("status") == CacheStatus.SUCCESS_SYNCED.value,
+            )
+            for m in matches
+            if m.get("lyrics")
+        ]
+        best = select_best(candidates, track.length)
 
-        if not best or not best.get("lyrics"):
+        if not best:
             return None
 
         status = CacheStatus(best["status"])
