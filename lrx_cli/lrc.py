@@ -16,7 +16,7 @@ from .models import CacheStatus
 _RAW_TAG_RE = re.compile(r"\[(\d{2,}):(\d{2})(?:[.:](\d{1,3}))?\]")
 
 # Standard format after normalization: [mm:ss.cc]
-_STD_TAG_RE = re.compile(r"\[\d{2,}:\d{2}\.\d{2}\]")
+# _STD_TAG_RE = re.compile(r"\[\d{2,}:\d{2}\.\d{2}\]")
 
 # Standard format with capture groups
 _STD_TAG_CAPTURE_RE = re.compile(r"\[(\d{2,}):(\d{2})\.(\d{2})\]")
@@ -41,6 +41,21 @@ _WORD_SYNC_TAG_RE = re.compile(r"<\d{2,}:\d{2}(?:[.:]\d{1,3})?>|<\d+,\d+,\d+>")
 def _remove_pattern(text: str, pattern: re.Pattern) -> str:
     """Remove all occurrences of pattern from text, then strip leading/trailing whitespace."""
     return pattern.sub("", text).strip()
+
+
+def _raw_tag_to_ms(mm: str, ss: str, frac: Optional[str]) -> int:
+    """Convert parsed time tag components to total milliseconds."""
+    if frac is None:
+        ms = 0
+    else:
+        n = len(frac)
+        if n == 1:
+            ms = int(frac) * 100
+        elif n == 2:
+            ms = int(frac) * 10
+        else:
+            ms = int(frac)
+    return (int(mm) * 60 + int(ss)) * 1000 + ms
 
 
 def _raw_tag_to_cs(mm: str, ss: str, frac: Optional[str]) -> str:
@@ -225,40 +240,36 @@ class LRCData:
                 _remove_pattern(line, _LINE_START_TAGS_RE) for line in self._lines
             ).strip("\n")
 
-        lines = []
+        tagged_lines = []
         for line in self._lines:
             pos = 0
-            cnt = 0
-            plain_line = ""
+            tag_ms = []
             while True:
                 # Only match strictly repeated standard time tags at the start of the line
                 # Lines without any time tags are ignored.
                 # Lyric lines are considered already stripped of whitespaces, so no strips here.
-                m = _STD_TAG_RE.match(line, pos)
+                m = _STD_TAG_CAPTURE_RE.match(line, pos)
                 if not m:
-                    plain_line += line[pos:]
+                    lyric = line[pos:]
+                    for tag in tag_ms:
+                        tagged_lines.append((tag, lyric))
                     break
+                tag_ms.append(_raw_tag_to_ms(m.group(1), m.group(2), m.group(3)))
                 pos = m.end()
-                cnt += 1
-            # Also avoid dulplicating blank lines
-            if deduplicate or not plain_line:
-                if cnt > 0:
-                    lines.append(plain_line)
-            else:
-                for _ in range(cnt):
-                    lines.append(plain_line)
+
+        sorted_lines = [lyric for _, lyric in sorted(tagged_lines, key=lambda x: x[0])]
 
         if deduplicate:
             # Remove consecutive duplicates
             deduped_lines = []
             prev_line = None
-            for line in lines:
+            for line in sorted_lines:
                 if line != prev_line:
                     deduped_lines.append(line)
                 prev_line = line
-            lines = deduped_lines
+            sorted_lines = deduped_lines
 
-        return "\n".join(lines).strip()
+        return "\n".join(sorted_lines).strip()
 
     def print_lyrics(
         self,

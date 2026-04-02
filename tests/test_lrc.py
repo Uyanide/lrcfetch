@@ -1,11 +1,18 @@
 from __future__ import annotations
 
-from lrx_cli.lrc import LRCData
+from lrx_cli.lrc import LRCData, _raw_tag_to_ms
 from lrx_cli.models import CacheStatus
 
 
 def _normalize(text: str) -> str:
     return str(LRCData(text))
+
+
+def test_raw_tag_to_ms_parses_common_fraction_formats() -> None:
+    assert _raw_tag_to_ms("00", "00", None) == 0
+    assert _raw_tag_to_ms("00", "01", "2") == 1200
+    assert _raw_tag_to_ms("00", "01", "23") == 1230
+    assert _raw_tag_to_ms("00", "01", "234") == 1234
 
 
 def test_normalize_tags_supports_all_raw_time_formats() -> None:
@@ -143,7 +150,7 @@ def test_normalize_unsynced_covers_documented_blank_and_tag_rules() -> None:
 def test_to_plain_duplicates_lines_by_leading_repeated_timestamps() -> None:
     text = "\n".join(
         [
-            "[00:01.00][00:02.00]hello",
+            "[00:02.00][00:01.00]hello",
             "[00:03.00]world",
             "no-tag-line",
             "[00:00.00]zero-only",
@@ -153,8 +160,22 @@ def test_to_plain_duplicates_lines_by_leading_repeated_timestamps() -> None:
     plain = LRCData(text).to_plain()
 
     # In synced mode, lines with standard tags are kept (including [00:00.00]),
-    # while lines without leading standard tags are ignored.
-    assert plain == "\n".join(["hello", "hello", "world", "zero-only"])
+    # lines without leading standard tags are ignored, and output is sorted by tag timestamp.
+    assert plain == "\n".join(["zero-only", "hello", "hello", "world"])
+
+
+def test_to_plain_sorts_lines_by_timestamp_across_lines() -> None:
+    text = "\n".join(
+        [
+            "[00:05.00]late",
+            "[00:01.00]early",
+            "[00:03.00]middle",
+        ]
+    )
+
+    plain = LRCData(text).to_plain()
+
+    assert plain == "\n".join(["early", "middle", "late"])
 
 
 def test_to_plain_deduplicate_collapses_only_consecutive_equals() -> None:
