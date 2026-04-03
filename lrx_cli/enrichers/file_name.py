@@ -60,22 +60,35 @@ class FileNameEnricher(BaseEnricher):
                 # Left was only a track number → right is the title
                 if not track.title:
                     updates["title"] = right
+
+        # Try "Artist-Title" split (no spaces)
+        elif "-" in stem:
+            left, right = stem.split("-", 1)
+            left = _TRACK_NUM_RE.sub("", left).strip()
+            right = right.strip()
+
+            if left and right:
+                if not track.artist:
+                    updates["artist"] = left
+                if not track.title:
+                    updates["title"] = right
+            elif right:
+                if not track.title:
+                    updates["title"] = right
+
+        # No separator: strip track number, remainder is title
         else:
-            # No separator: strip track number, remainder is title
             title_guess = _TRACK_NUM_RE.sub("", stem).strip()
             if title_guess and not track.title:
                 updates["title"] = title_guess
 
-        # Use parent directory as artist fallback
-        # Typical layout: /Music/Artist/Album/01 - Track.flac
-        if not track.artist and "artist" not in updates:
+        # Use parent directory as album fallback
+        if not track.album and "album" not in updates:
             parents = audio_path.parents
-            if len(parents) >= 2:
+            if len(parents) >= 1:
                 album_dir = parents[0].name
-                artist_dir = parents[1].name
-                if artist_dir and artist_dir not in (".", "/"):
-                    updates["artist"] = artist_dir
-                    if not track.album and album_dir and album_dir != artist_dir:
+                if album_dir and album_dir not in (".", "/"):
+                    if not track.album:
                         updates["album"] = album_dir
 
         if updates:
