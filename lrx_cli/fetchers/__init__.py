@@ -33,7 +33,8 @@ FetcherMethodType = Literal[
 _FETCHER_GROUPS: list[list[FetcherMethodType]] = [
     ["local"],
     ["cache-search"],
-    ["spotify", "lrclib"],
+    ["spotify"],
+    ["lrclib"],
     ["lrclib-search", "netease", "qqmusic"],
 ]
 
