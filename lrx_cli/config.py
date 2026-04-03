@@ -49,6 +49,10 @@ SCORE_W_SYNCED = 10.0
 MIN_CONFIDENCE = 25.0  # below this, candidate is rejected
 HIGH_CONFIDENCE = 80.0  # at or above this, stop searching early
 
+# Multi-candidate fetching
+MULTI_CANDIDATE_LIMIT = 3  # max candidates to try per search-based fetcher
+MULTI_CANDIDATE_DELAY_S = 0.2  # delay between sequential lyric fetches
+
 # Legacy cache rows (no confidence stored) get a base score by sync status
 LEGACY_CONFIDENCE_SYNCED = 50.0
 LEGACY_CONFIDENCE_UNSYNCED = 40.0

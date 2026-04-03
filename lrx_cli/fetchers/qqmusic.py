@@ -11,18 +11,20 @@ The base URL is read from the QQ_MUSIC_API_URL environment variable.
 Search → pick best match by duration → fetch LRC lyrics.
 """
 
+import asyncio
 from typing import Optional
 import httpx
 from loguru import logger
 
 from .base import BaseFetcher
-from .selection import SearchCandidate, select_best
+from .selection import SearchCandidate, select_ranked
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..lrc import LRCData
 from ..config import (
     HTTP_TIMEOUT,
     TTL_NOT_FOUND,
     TTL_NETWORK_ERROR,
+    MULTI_CANDIDATE_DELAY_S,
     QQ_MUSIC_API_URL,
 )
 
@@ -37,10 +39,10 @@ class QQMusicFetcher(BaseFetcher):
 
     async def _search(
         self, track: TrackMeta, limit: int = 10
-    ) -> tuple[Optional[str], float]:
+    ) -> list[tuple[str, float]]:
         query = f"{track.artist or ''} {track.title or ''}".strip()
         if not query:
-            return None, 0.0
+            return []
 
         logger.debug(f"QQMusic: searching for '{query}' (limit={limit})")
 
@@ -55,18 +57,18 @@ class QQMusicFetcher(BaseFetcher):
 
             if data.get("code") != 0:
                 logger.error(f"QQMusic: search API error: {data}")
-                return None, 0.0
+                return []
 
             songs = data.get("data", {}).get("list", [])
             if not songs:
                 logger.debug("QQMusic: search returned 0 results")
-                return None, 0.0
+                return []
 
             logger.debug(f"QQMusic: search returned {len(songs)} candidates")
 
             candidates = [
                 SearchCandidate(
-                    item=song.get("mid"),
+                    item=mid,
                     duration_ms=float(song["interval"]) * 1000
                     if isinstance(song.get("interval"), int)
                     else None,
@@ -76,27 +78,27 @@ class QQMusicFetcher(BaseFetcher):
                     album=(song.get("album") or {}).get("name"),
                 )
                 for song in songs
-                if isinstance(song, dict) and song.get("mid") is not None
+                if isinstance(song, dict) and isinstance(mid := song.get("mid"), str)
             ]
-            best_mid, confidence = select_best(
+            ranked = select_ranked(
                 candidates,
                 track.length,
                 title=track.title,
                 artist=track.artist,
                 album=track.album,
             )
-            if best_mid is not None:
+            if ranked:
                 logger.debug(
-                    f"QQMusic: selected mid={best_mid} (confidence={confidence:.0f})"
+                    "QQMusic: top candidates: "
+                    + ", ".join(f"mid={m} ({c:.0f})" for m, c in ranked)
                 )
-                return best_mid, confidence
-
-            logger.debug("QQMusic: no suitable candidate found")
-            return None, 0.0
+            else:
+                logger.debug("QQMusic: no suitable candidate found")
+            return ranked
 
         except Exception as e:
             logger.error(f"QQMusic: search failed: {e}")
-            return None, 0.0
+            return []
 
     async def _get_lyric(
         self, mid: str, confidence: float = 0.0
@@ -152,9 +154,18 @@ class QQMusicFetcher(BaseFetcher):
             return None
 
         logger.info(f"QQMusic: fetching lyrics for {track.display_name()}")
-        mid, confidence = await self._search(track)
-        if not mid:
+        candidates = await self._search(track)
+        if not candidates:
             logger.debug(f"QQMusic: no match found for {track.display_name()}")
             return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
 
-        return await self._get_lyric(mid, confidence=confidence)
+        for i, (mid, confidence) in enumerate(candidates):
+            if i > 0:
+                await asyncio.sleep(MULTI_CANDIDATE_DELAY_S)
+            result = await self._get_lyric(mid, confidence=confidence)
+            if result is None or result.status == CacheStatus.NETWORK_ERROR:
+                return result
+            if result.status != CacheStatus.NOT_FOUND:
+                return result
+
+        return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)

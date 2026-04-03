@@ -29,7 +29,7 @@ FetcherMethodType = Literal[
 ]
 
 # Fetchers within a group run in parallel; groups run sequentially.
-# A group that produces any positive result stops the pipeline.
+# A group that produces any trusted and synced result stops the pipeline.
 _FETCHER_GROUPS: list[list[FetcherMethodType]] = [
     ["local"],
     ["cache-search"],

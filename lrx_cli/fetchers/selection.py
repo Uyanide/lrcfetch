@@ -11,6 +11,7 @@ from typing import Generic, Optional, TypeVar
 
 from ..config import (
     DURATION_TOLERANCE_MS,
+    MULTI_CANDIDATE_LIMIT,
     SCORE_W_TITLE as _W_TITLE,
     SCORE_W_ARTIST as _W_ARTIST,
     SCORE_W_ALBUM as _W_ALBUM,
@@ -141,6 +142,32 @@ def _score_candidate(
     synced_score = _W_SYNCED if c.is_synced else 0.0
 
     return metadata_score + synced_score
+
+
+def select_ranked(
+    candidates: list[SearchCandidate[T]],
+    track_length_ms: Optional[int] = None,
+    *,
+    title: Optional[str] = None,
+    artist: Optional[str] = None,
+    album: Optional[str] = None,
+    min_confidence: float = MIN_CONFIDENCE,
+    max_results: int = MULTI_CANDIDATE_LIMIT,
+) -> list[tuple[T, float]]:
+    """Score candidates and return top max_results above min_confidence, sorted by score descending."""
+    scored: list[tuple[T, float]] = []
+    for c in candidates:
+        if (
+            track_length_ms is not None
+            and c.duration_ms is not None
+            and abs(c.duration_ms - track_length_ms) > DURATION_TOLERANCE_MS
+        ):
+            continue
+        s = _score_candidate(c, title, artist, album, track_length_ms)
+        if s >= min_confidence:
+            scored.append((c.item, s))
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return scored[:max_results]
 
 
 def select_best(

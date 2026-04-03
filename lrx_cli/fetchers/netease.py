@@ -12,18 +12,20 @@ Search results are filtered by duration when the track has a known length
 to avoid returning lyrics for the wrong version of a song.
 """
 
+import asyncio
 from typing import Optional
 import httpx
 from loguru import logger
 
 from .base import BaseFetcher
-from .selection import SearchCandidate, select_best
+from .selection import SearchCandidate, select_ranked
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..lrc import LRCData
 from ..config import (
     HTTP_TIMEOUT,
     TTL_NOT_FOUND,
     TTL_NETWORK_ERROR,
+    MULTI_CANDIDATE_DELAY_S,
     NETEASE_SEARCH_URL,
     NETEASE_LYRIC_URL,
     UA_BROWSER,
@@ -45,10 +47,10 @@ class NeteaseFetcher(BaseFetcher):
 
     async def _search(
         self, track: TrackMeta, limit: int = 10
-    ) -> tuple[Optional[int], float]:
+    ) -> list[tuple[int, float]]:
         query = f"{track.artist or ''} {track.title or ''}".strip()
         if not query:
-            return None, 0.0
+            return []
 
         logger.debug(f"Netease: searching for '{query}' (limit={limit})")
 
@@ -66,23 +68,23 @@ class NeteaseFetcher(BaseFetcher):
                 logger.error(
                     f"Netease: search returned non-dict: {type(result).__name__}"
                 )
-                return None, 0.0
+                return []
 
             result_body = result.get("result")
             if not isinstance(result_body, dict):
                 logger.debug("Netease: search 'result' field missing or invalid")
-                return None, 0.0
+                return []
 
             songs = result_body.get("songs")
             if not isinstance(songs, list) or len(songs) == 0:
                 logger.debug("Netease: search returned 0 results")
-                return None, 0.0
+                return []
 
             logger.debug(f"Netease: search returned {len(songs)} candidates")
 
             candidates = [
                 SearchCandidate(
-                    item=song.get("id"),
+                    item=song_id,
                     duration_ms=float(song["dt"])
                     if isinstance(song.get("dt"), int)
                     else None,
@@ -92,27 +94,27 @@ class NeteaseFetcher(BaseFetcher):
                     album=(song.get("al") or {}).get("name"),
                 )
                 for song in songs
-                if isinstance(song, dict) and song.get("id") is not None
+                if isinstance(song, dict) and isinstance(song_id := song.get("id"), int)
             ]
-            best_id, confidence = select_best(
+            ranked = select_ranked(
                 candidates,
                 track.length,
                 title=track.title,
                 artist=track.artist,
                 album=track.album,
             )
-            if best_id is not None:
+            if ranked:
                 logger.debug(
-                    f"Netease: selected id={best_id} (confidence={confidence:.0f})"
+                    "Netease: top candidates: "
+                    + ", ".join(f"id={i} ({c:.0f})" for i, c in ranked)
                 )
-                return best_id, confidence
-
-            logger.debug("Netease: no suitable candidate found")
-            return None, 0.0
+            else:
+                logger.debug("Netease: no suitable candidate found")
+            return ranked
 
         except Exception as e:
             logger.error(f"Netease: search failed: {e}")
-            return None, 0.0
+            return []
 
     async def _get_lyric(
         self, song_id: int, confidence: float = 0.0
@@ -185,9 +187,18 @@ class NeteaseFetcher(BaseFetcher):
             return None
 
         logger.info(f"Netease: fetching lyrics for {track.display_name()}")
-        song_id, confidence = await self._search(track)
-        if not song_id:
+        candidates = await self._search(track)
+        if not candidates:
             logger.debug(f"Netease: no match found for {track.display_name()}")
             return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
 
-        return await self._get_lyric(song_id, confidence=confidence)
+        for i, (song_id, confidence) in enumerate(candidates):
+            if i > 0:
+                await asyncio.sleep(MULTI_CANDIDATE_DELAY_S)
+            result = await self._get_lyric(song_id, confidence=confidence)
+            if result is None or result.status == CacheStatus.NETWORK_ERROR:
+                return result
+            if result.status != CacheStatus.NOT_FOUND:
+                return result
+
+        return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)

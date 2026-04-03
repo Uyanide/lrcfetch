@@ -3,6 +3,7 @@ from __future__ import annotations
 from lrx_cli.fetchers.selection import (
     SearchCandidate,
     select_best,
+    select_ranked,
     _score_candidate,
     _text_similarity,
     MIN_CONFIDENCE,
@@ -407,9 +408,6 @@ def test_netease_without_ref_metadata_rejects_below_confidence() -> None:
     assert best is None
 
 
-# --- Edge cases ---
-
-
 def test_empty_candidates_returns_none() -> None:
     assert select_best([], track_length_ms=5000) == (None, 0.0)
     assert select_best([], track_length_ms=None) == (None, 0.0)
@@ -445,3 +443,85 @@ def test_generic_type_preserved() -> None:
     dict_candidates = [SearchCandidate(item={"id": 1}, title="x")]
     best, _ = select_best(dict_candidates, title="x")
     assert best == {"id": 1}
+
+
+def test_select_ranked_empty_input() -> None:
+    assert select_ranked([]) == []
+
+
+def test_select_ranked_all_below_confidence() -> None:
+    """All candidates below threshold → empty list."""
+    candidates = [
+        SearchCandidate(item="x", title="Completely Different", duration_ms=999999.0)
+    ]
+    result = select_ranked(
+        candidates, 232000, title="My Love", artist="Westlife", min_confidence=90.0
+    )
+    assert result == []
+
+
+def test_select_ranked_sorted_descending() -> None:
+    """Results are ordered highest score first."""
+    candidates = _netease_candidates()
+    ranked = select_ranked(
+        candidates,
+        _REF_LENGTH,
+        title=_REF_TITLE,
+        artist=_REF_ARTIST,
+        album=_REF_ALBUM,
+    )
+    assert len(ranked) >= 2
+    scores = [score for _, score in ranked]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_select_ranked_respects_max_results() -> None:
+    candidates = _netease_candidates()
+    ranked = select_ranked(
+        candidates,
+        _REF_LENGTH,
+        title=_REF_TITLE,
+        artist=_REF_ARTIST,
+        album=_REF_ALBUM,
+        max_results=2,
+    )
+    assert len(ranked) <= 2
+
+
+def test_select_ranked_consistent_with_select_best() -> None:
+    """First result of select_ranked matches select_best."""
+    candidates = _netease_candidates()
+    kwargs = dict(title=_REF_TITLE, artist=_REF_ARTIST, album=_REF_ALBUM)
+    ranked = select_ranked(candidates, _REF_LENGTH, **kwargs)  # type: ignore
+    best_item, best_score = select_best(candidates, _REF_LENGTH, **kwargs)  # type: ignore
+    assert ranked[0] == (best_item, best_score)
+
+
+def test_select_ranked_duration_hard_filter_applies() -> None:
+    """Candidates outside duration tolerance are excluded from ranked results."""
+    candidates = _netease_candidates()
+    ranked = select_ranked(
+        candidates,
+        _REF_LENGTH,
+        title=_REF_TITLE,
+        artist=_REF_ARTIST,
+        album=_REF_ALBUM,
+    )
+    ids = [item for item, _ in ranked]
+    # 29809886 (dt=262000, diff=30000ms) and 20707713 (dt=241116, diff=9116ms)
+    # both exceed DURATION_TOLERANCE_MS=3000 → must not appear
+    assert 29809886 not in ids
+    assert 20707713 not in ids
+
+
+def test_select_ranked_netease_top_is_best_duration_match() -> None:
+    """2080607 (diff=59ms) should rank first over 572412968 (diff=1000ms)."""
+    candidates = _netease_candidates()
+    ranked = select_ranked(
+        candidates,
+        _REF_LENGTH,
+        title=_REF_TITLE,
+        artist=_REF_ARTIST,
+        album=_REF_ALBUM,
+    )
+    assert ranked[0][0] == 2080607
