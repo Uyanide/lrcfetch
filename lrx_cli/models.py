@@ -63,3 +63,7 @@ class LyricResult:
     source: Optional[str] = None  # Which fetcher produced this result
     ttl: Optional[int] = None  # Hint for cache TTL (seconds)
     confidence: float = 100.0  # 0-100 selection confidence (100 = trusted/exact)
+
+    def __post_init__(self) -> None:
+        if self.status in (CacheStatus.NOT_FOUND, CacheStatus.NETWORK_ERROR):
+            self.confidence = 0.0
