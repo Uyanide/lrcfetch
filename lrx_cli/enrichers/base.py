@@ -22,6 +22,10 @@ class BaseEnricher(ABC):
     @abstractmethod
     def name(self) -> str: ...
 
+    @property
+    @abstractmethod
+    def provides(self) -> set[str]: ...
+
     @abstractmethod
     def enrich(self, track: TrackMeta) -> Optional[dict]:
         """Return a dict of {field_name: value} for fields this enricher can fill.

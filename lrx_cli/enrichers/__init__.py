@@ -26,6 +26,12 @@ def enrich_track(track: TrackMeta) -> TrackMeta:
     """
     for enricher in _ENRICHERS:
         try:
+            # Skip if all provided fields are already filled
+            if all(
+                getattr(track, field, None) is not None for field in enricher.provides
+            ):
+                continue
+
             result = enricher.enrich(track)
         except Exception as e:
             logger.warning(f"Enricher {enricher.name} failed: {e}")

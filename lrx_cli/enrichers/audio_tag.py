@@ -20,6 +20,10 @@ class AudioTagEnricher(BaseEnricher):
     def name(self) -> str:
         return "audio-tag"
 
+    @property
+    def provides(self) -> set[str]:
+        return {"title", "artist", "album", "length"}
+
     def enrich(self, track: TrackMeta) -> Optional[dict]:
         if not track.is_local or not track.url:
             return None
