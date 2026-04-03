@@ -43,12 +43,9 @@ class NeteaseFetcher(BaseFetcher):
     def is_available(self, track: TrackMeta) -> bool:
         return bool(track.title)
 
-    def _search(self, track: TrackMeta, limit: int = 10) -> tuple[Optional[int], float]:
-        """Search Netease and return the best-matching song ID with confidence.
-
-        When ``track.length`` is available, candidates are ranked by duration
-        difference and only accepted if within ``DURATION_TOLERANCE_MS``.
-        """
+    async def _search(
+        self, track: TrackMeta, limit: int = 10
+    ) -> tuple[Optional[int], float]:
         query = f"{track.artist or ''} {track.title or ''}".strip()
         if not query:
             return None, 0.0
@@ -56,8 +53,8 @@ class NeteaseFetcher(BaseFetcher):
         logger.debug(f"Netease: searching for '{query}' (limit={limit})")
 
         try:
-            with httpx.Client(timeout=HTTP_TIMEOUT) as client:
-                resp = client.post(
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                resp = await client.post(
                     NETEASE_SEARCH_URL,
                     headers=_HEADERS,
                     data={"s": query, "type": "1", "limit": str(limit), "offset": "0"},
@@ -65,7 +62,6 @@ class NeteaseFetcher(BaseFetcher):
                 resp.raise_for_status()
                 result = resp.json()
 
-            # Validate response
             if not isinstance(result, dict):
                 logger.error(
                     f"Netease: search returned non-dict: {type(result).__name__}"
@@ -118,15 +114,14 @@ class NeteaseFetcher(BaseFetcher):
             logger.error(f"Netease: search failed: {e}")
             return None, 0.0
 
-    def _get_lyric(
+    async def _get_lyric(
         self, song_id: int, confidence: float = 0.0
     ) -> Optional[LyricResult]:
-        """Fetch lyrics for a given Netease song ID."""
         logger.debug(f"Netease: fetching lyrics for song_id={song_id}")
 
         try:
-            with httpx.Client(timeout=HTTP_TIMEOUT) as client:
-                resp = client.post(
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                resp = await client.post(
                     NETEASE_LYRIC_URL,
                     headers=_HEADERS,
                     data={
@@ -144,7 +139,6 @@ class NeteaseFetcher(BaseFetcher):
                 resp.raise_for_status()
                 data = resp.json()
 
-            # Validate response
             if not isinstance(data, dict):
                 logger.error(
                     f"Netease: lyric response is not dict: {type(data).__name__}"
@@ -165,7 +159,6 @@ class NeteaseFetcher(BaseFetcher):
                 logger.debug(f"Netease: empty lyrics for song_id={song_id}")
                 return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
 
-            # Determine sync status
             lrcdata = LRCData(lrc)
             status = lrcdata.detect_sync_status()
             logger.info(
@@ -183,19 +176,18 @@ class NeteaseFetcher(BaseFetcher):
             logger.error(f"Netease: lyric fetch failed for song_id={song_id}: {e}")
             return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
 
-    def fetch(
+    async def fetch(
         self, track: TrackMeta, bypass_cache: bool = False
     ) -> Optional[LyricResult]:
-        """Search for the track and fetch its lyrics."""
         query = f"{track.artist or ''} {track.title or ''}".strip()
         if not query:
             logger.debug("Netease: skipped — insufficient metadata")
             return None
 
         logger.info(f"Netease: fetching lyrics for {track.display_name()}")
-        song_id, confidence = self._search(track)
+        song_id, confidence = await self._search(track)
         if not song_id:
             logger.debug(f"Netease: no match found for {track.display_name()}")
             return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
 
-        return self._get_lyric(song_id, confidence=confidence)
+        return await self._get_lyric(song_id, confidence=confidence)

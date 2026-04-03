@@ -35,8 +35,9 @@ class QQMusicFetcher(BaseFetcher):
     def is_available(self, track: TrackMeta) -> bool:
         return bool(track.title) and bool(QQ_MUSIC_API_URL)
 
-    def _search(self, track: TrackMeta, limit: int = 10) -> tuple[Optional[str], float]:
-        """Search QQ Music and return the best-matching song MID with confidence."""
+    async def _search(
+        self, track: TrackMeta, limit: int = 10
+    ) -> tuple[Optional[str], float]:
         query = f"{track.artist or ''} {track.title or ''}".strip()
         if not query:
             return None, 0.0
@@ -44,8 +45,8 @@ class QQMusicFetcher(BaseFetcher):
         logger.debug(f"QQMusic: searching for '{query}' (limit={limit})")
 
         try:
-            with httpx.Client(timeout=HTTP_TIMEOUT) as client:
-                resp = client.get(
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                resp = await client.get(
                     f"{QQ_MUSIC_API_URL}/api/search",
                     params={"keyword": query, "type": "song", "num": limit},
                 )
@@ -97,13 +98,14 @@ class QQMusicFetcher(BaseFetcher):
             logger.error(f"QQMusic: search failed: {e}")
             return None, 0.0
 
-    def _get_lyric(self, mid: str, confidence: float = 0.0) -> Optional[LyricResult]:
-        """Fetch lyrics for a given QQ Music song MID."""
+    async def _get_lyric(
+        self, mid: str, confidence: float = 0.0
+    ) -> Optional[LyricResult]:
         logger.debug(f"QQMusic: fetching lyrics for mid={mid}")
 
         try:
-            with httpx.Client(timeout=HTTP_TIMEOUT) as client:
-                resp = client.get(
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                resp = await client.get(
                     f"{QQ_MUSIC_API_URL}/api/lyric",
                     params={"mid": mid},
                 )
@@ -124,8 +126,7 @@ class QQMusicFetcher(BaseFetcher):
             lrcdata = LRCData(lrc)
             status = lrcdata.detect_sync_status()
             logger.info(
-                f"QQMusic: got {status.value} lyrics for mid={mid} "
-                f"({len(lrcdata)} lines)"
+                f"QQMusic: got {status.value} lyrics for mid={mid} ({len(lrcdata)} lines)"
             )
             return LyricResult(
                 status=status,
@@ -138,10 +139,9 @@ class QQMusicFetcher(BaseFetcher):
             logger.error(f"QQMusic: lyric fetch failed for mid={mid}: {e}")
             return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
 
-    def fetch(
+    async def fetch(
         self, track: TrackMeta, bypass_cache: bool = False
     ) -> Optional[LyricResult]:
-        """Search for the track and fetch its lyrics."""
         if not QQ_MUSIC_API_URL:
             logger.debug("QQMusic: skipped — QQ_MUSIC_API_URL not configured")
             return None
@@ -152,9 +152,9 @@ class QQMusicFetcher(BaseFetcher):
             return None
 
         logger.info(f"QQMusic: fetching lyrics for {track.display_name()}")
-        mid, confidence = self._search(track)
+        mid, confidence = await self._search(track)
         if not mid:
             logger.debug(f"QQMusic: no match found for {track.display_name()}")
             return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
 
-        return self._get_lyric(mid, confidence=confidence)
+        return await self._get_lyric(mid, confidence=confidence)

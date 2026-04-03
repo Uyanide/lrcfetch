@@ -64,10 +64,9 @@ class LrclibSearchFetcher(BaseFetcher):
 
         return queries
 
-    def fetch(
+    async def fetch(
         self, track: TrackMeta, bypass_cache: bool = False
     ) -> Optional[LyricResult]:
-        """Search LRCLIB for lyrics. Requires at least a title."""
         if not track.title:
             logger.debug("LRCLIB-search: skipped — no title")
             return None
@@ -80,11 +79,11 @@ class LrclibSearchFetcher(BaseFetcher):
         had_error = False
 
         try:
-            with httpx.Client(timeout=HTTP_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
                 for params in queries:
                     url = f"{LRCLIB_SEARCH_URL}?{urlencode(params)}"
                     logger.debug(f"LRCLIB-search: query {params}")
-                    resp = client.get(url, headers={"User-Agent": UA_LRX})
+                    resp = await client.get(url, headers={"User-Agent": UA_LRX})
 
                     if resp.status_code != 200:
                         logger.error(f"LRCLIB-search: API returned {resp.status_code}")

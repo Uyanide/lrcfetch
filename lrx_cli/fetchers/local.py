@@ -28,7 +28,7 @@ class LocalFetcher(BaseFetcher):
     def is_available(self, track: TrackMeta) -> bool:
         return track.is_local
 
-    def fetch(
+    async def fetch(
         self, track: TrackMeta, bypass_cache: bool = False
     ) -> Optional[LyricResult]:
         """Attempt to read lyrics from local filesystem."""

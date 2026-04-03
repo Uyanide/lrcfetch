@@ -28,7 +28,7 @@ class BaseFetcher(ABC):
         pass
 
     @abstractmethod
-    def fetch(
+    async def fetch(
         self, track: TrackMeta, bypass_cache: bool = False
     ) -> Optional[LyricResult]:
         """Fetch lyrics for the given track. Returns None if unable to fetch."""

@@ -34,7 +34,7 @@ class LrclibFetcher(BaseFetcher):
     def is_available(self, track: TrackMeta) -> bool:
         return track.is_complete
 
-    def fetch(
+    async def fetch(
         self, track: TrackMeta, bypass_cache: bool = False
     ) -> Optional[LyricResult]:
         """Fetch lyrics from LRCLIB. Requires complete metadata."""
@@ -48,13 +48,12 @@ class LrclibFetcher(BaseFetcher):
             "album_name": track.album,
             "duration": track.length / 1000.0 if track.length else 0,
         }
-
         url = f"{LRCLIB_API_URL}?{urlencode(params)}"
         logger.info(f"LRCLIB: fetching lyrics for {track.display_name()}")
 
         try:
-            with httpx.Client(timeout=HTTP_TIMEOUT) as client:
-                resp = client.get(url, headers={"User-Agent": UA_LRX})
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                resp = await client.get(url, headers={"User-Agent": UA_LRX})
 
             if resp.status_code == 404:
                 logger.debug(f"LRCLIB: not found for {track.display_name()}")
@@ -67,8 +66,6 @@ class LrclibFetcher(BaseFetcher):
                 )
 
             data = resp.json()
-
-            # Validate response
             if not isinstance(data, dict):
                 logger.error(f"LRCLIB: unexpected response type: {type(data).__name__}")
                 return LyricResult(
