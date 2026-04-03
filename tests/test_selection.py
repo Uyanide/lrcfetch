@@ -101,6 +101,31 @@ def test_score_duration_linear_decay() -> None:
     assert score_edge == 0.0
 
 
+def test_duration_hard_filter_rejects_all_mismatched() -> None:
+    """All candidates outside duration tolerance are filtered before scoring."""
+    candidates = [
+        SearchCandidate(
+            item="wrong", duration_ms=180000.0, title="My Love", artist="Westlife"
+        ),
+        SearchCandidate(
+            item="also-wrong", duration_ms=300000.0, title="My Love", artist="Westlife"
+        ),
+    ]
+    best, _ = select_best(candidates, 232000, title="My Love", artist="Westlife")
+    assert best is None
+
+
+def test_duration_neutral_when_ref_has_no_duration() -> None:
+    """Candidate duration does not penalise when the reference has no duration."""
+    # Candidate A: title only (no duration)
+    c_no_dur = SearchCandidate(item="no-dur", title="My Love")
+    # Candidate B: same title + a duration (ref has none)
+    c_with_dur = SearchCandidate(item="with-dur", title="My Love", duration_ms=232000.0)
+    score_no_dur = _score_candidate(c_no_dur, "My Love", None, None, None)
+    score_with_dur = _score_candidate(c_with_dur, "My Love", None, None, None)
+    assert score_no_dur == score_with_dur
+
+
 def test_score_case_insensitive_title() -> None:
     c = SearchCandidate(item="x", title="my love")
     s1 = _score_candidate(c, "My Love", None, None, None)

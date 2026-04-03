@@ -80,7 +80,8 @@ def _score_candidate(
       - Title:    40
       - Artist:   30
       - Album:    10
-      - Duration: 10
+      - Duration: 10 (only when reference track has duration; hard mismatch is
+                      pre-filtered before scoring)
     """
     raw = 0.0
     available_weight = 0.0
@@ -115,10 +116,15 @@ def _score_candidate(
                 normalize_for_match(ref_album), normalize_for_match(c.album)
             )
 
-    # Duration
-    if ref_length_ms is not None or c.duration_ms is not None:
+    # Duration — only counted when the reference track has duration.
+    # If the candidate also has duration, it contributes positively when matching
+    # (hard mismatch is already filtered upstream in select_best).
+    # If the candidate lacks duration, it contributes 0 to raw but still counts
+    # in available_weight (penalty for missing verifiable info).
+    # If the reference has no duration, duration is excluded entirely (neutral).
+    if ref_length_ms is not None:
         available_weight += _W_DURATION
-        if ref_length_ms is not None and c.duration_ms is not None:
+        if c.duration_ms is not None:
             diff = abs(c.duration_ms - ref_length_ms)
             if diff <= DURATION_TOLERANCE_MS:
                 raw += _W_DURATION * (1.0 - diff / DURATION_TOLERANCE_MS)
@@ -157,6 +163,14 @@ def select_best(
     best_score = -1.0
 
     for c in candidates:
+        # Hard duration filter: both sides have duration but they don't match → skip.
+        if (
+            track_length_ms is not None
+            and c.duration_ms is not None
+            and abs(c.duration_ms - track_length_ms) > DURATION_TOLERANCE_MS
+        ):
+            continue
+
         s = _score_candidate(c, title, artist, album, track_length_ms)
         if s > best_score:
             best_score = s
