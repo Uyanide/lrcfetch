@@ -389,6 +389,14 @@ def stats():
                 f"{src:<{src_w}}  "
                 + "  ".join(f"{c:>{w}}" for c, w in zip(counts, col_w))
             )
+        totals = [
+            str(sum(table[src].get(st, 0) for src in sources)) for st in all_statuses
+        ]
+        print("-" * src_w + "  " + "  ".join("-" * w for w in col_w))
+        print(
+            f"{'total':<{src_w}}  "
+            + "  ".join(f"{c:>{w}}" for c, w in zip(totals, col_w))
+        )
 
     # Confidence distribution (positive entries only)
     buckets = s.get("confidence_buckets", {})
