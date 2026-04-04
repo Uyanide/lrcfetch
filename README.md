@@ -1,3 +1,7 @@
+> [!WARNING]
+>
+> This project is provided for educational and experimental purposes only. It is not intended for production or commercial use and may violate the terms of service of third‑party music platforms. Use of this software is at your own risk; the authors provide no warranties and accept no liability for any consequences arising from its use.
+
 # LRX-CLI
 
 A CLI tool for fetching LRC lyrics on Linux. Automatically detects the currently playing track via MPRIS/DBus and retrieves the best-matching lyrics from multiple sources, ranked by confidence scoring.
