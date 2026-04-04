@@ -37,7 +37,7 @@ class FileNameEnricher(BaseEnricher):
     def provides(self) -> set[str]:
         return {"artist", "title", "album"}
 
-    def enrich(self, track: TrackMeta) -> Optional[dict]:
+    async def enrich(self, track: TrackMeta) -> Optional[dict]:
         if not track.is_local or not track.url:
             return None
 

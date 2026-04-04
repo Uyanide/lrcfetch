@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lrx-cli"
-version = "0.4.5"
+version = "0.4.6"
 description = "Fetch line-synced lyrics for your music player."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -22,7 +22,7 @@ dependencies = [
 lrx = "lrx_cli.cli:run"
 
 [tool.ruff.lint]
-ignore = ["E402"]
+ignore = ["E402"] # Since there are headers
 
 [dependency-groups]
 dev = ["pytest>=9.0.2", "ruff>=0.15.8"]

@@ -27,7 +27,7 @@ class BaseEnricher(ABC):
     def provides(self) -> set[str]: ...
 
     @abstractmethod
-    def enrich(self, track: TrackMeta) -> Optional[dict]:
+    async def enrich(self, track: TrackMeta) -> Optional[dict]:
         """Return a dict of {field_name: value} for fields this enricher can fill.
 
         Return None or an empty dict if nothing can be contributed.

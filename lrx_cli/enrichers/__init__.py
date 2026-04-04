@@ -9,16 +9,19 @@ from loguru import logger
 from .base import BaseEnricher
 from .audio_tag import AudioTagEnricher
 from .file_name import FileNameEnricher
+from .musixmatch import MusixmatchSpotifyEnricher
 from ..models import TrackMeta
 
 # Enrichers run in order; earlier ones have higher priority.
+# There are only a few of them, so we can just call them sequentially without worrying about async concurrency or batching.
 _ENRICHERS: list[BaseEnricher] = [
     AudioTagEnricher(),
     FileNameEnricher(),
+    MusixmatchSpotifyEnricher(),
 ]
 
 
-def enrich_track(track: TrackMeta) -> TrackMeta:
+async def enrich_track(track: TrackMeta) -> TrackMeta:
     """Run all enrichers and return a track with missing fields filled in.
 
     Each enricher sees the cumulative state (earlier enrichers' results
@@ -32,7 +35,7 @@ def enrich_track(track: TrackMeta) -> TrackMeta:
             ):
                 continue
 
-            result = enricher.enrich(track)
+            result = await enricher.enrich(track)
         except Exception as e:
             logger.warning(f"Enricher {enricher.name} failed: {e}")
             continue

@@ -102,3 +102,4 @@ lrx --install-completion
 - [librelyrics-spotify](https://github.com/libre-lyrics/librelyrics-spotify)
 - [NeteaseCloudMusicAPI](https://www.npmjs.com/package/NeteaseCloudMusicApi?activeTab=readme)
 - [qq-music-api](https://github.com/tooplick/qq-music-api)
+- [Rise Media Player](https://github.com/theimpactfulcompany/Rise-Media-Player)

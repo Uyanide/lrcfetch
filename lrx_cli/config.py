@@ -83,6 +83,9 @@ QQ_MUSIC_API_URL = os.environ.get("QQ_MUSIC_API_URL", "").rstrip("/")
 MUSIXMATCH_USERTOKEN = os.environ.get("MUSIXMATCH_USERTOKEN", "")
 MUSIXMATCH_SEARCH_URL = "https://apic-desktop.musixmatch.com/ws/1.1/track.search"
 MUSIXMATCH_MACRO_URL = "https://apic-desktop.musixmatch.com/ws/1.1/macro.subtitles.get"
+MUSIXMATCH_TRACK_MATCH_URL = (
+    "https://apic-desktop.musixmatch.com/ws/1.1/matcher.track.get"
+)
 
 # Player preference (used when multiple MPRIS players are active)
 PREFERRED_PLAYER = os.environ.get("PREFERRED_PLAYER", "spotify")

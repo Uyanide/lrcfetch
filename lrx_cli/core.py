@@ -161,7 +161,7 @@ class LrcManager:
         force_method: Optional[FetcherMethodType],
         bypass_cache: bool,
     ) -> Optional[LyricResult]:
-        track = enrich_track(track)
+        track = await enrich_track(track)
         logger.info(f"Fetching lyrics for: {track.display_name()}")
 
         plan = build_plan(self.fetchers, track, force_method)
@@ -217,7 +217,7 @@ class LrcManager:
         lyrics: str,
     ) -> None:
         """Manually insert lyrics into the cache for a track."""
-        track = enrich_track(track)
+        track = asyncio.run(enrich_track(track))
         logger.info(f"Manually inserting lyrics for: {track.display_name()}")
         lrc = LRCData(lyrics)
         result = LyricResult(
