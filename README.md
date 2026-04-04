@@ -12,11 +12,15 @@ Sources are queried in order. High-confidence results (exact match or manual ins
 
 1. **Local** — sidecar `.lrc` files or embedded audio metadata (FLAC, MP3)
 2. **Cache Search** — fuzzy cross-album lookup in local cache
-3. **Spotify** — synced lyrics via Spotify's API (requires `SPOTIFY_SP_DC`)
+3. **Spotify** — synced lyrics via Spotify's API (requires `SPOTIFY_SP_DC` and Spotify trackid)
 4. **LRCLIB** — exact match from [lrclib.net](https://lrclib.net) (requires full metadata)
-5. **LRCLIB Search** — fuzzy search from lrclib.net (requires at least a title)
-6. **Netease** — Netease Cloud Music public API
-7. **QQ Music** — QQ Music via self-hosted API proxy (requires `QQ_MUSIC_API_URL` that provides the same interface as [tooplick/qq-music-api](https://github.com/tooplick/qq-music-api))
+5. **Musixmatch (Spotify)** — Musixmatch API with Spotify trackid (requires `MUSIXMATCH_USERTOKEN` and Spotify trackid)
+6. **LRCLIB Search** — fuzzy search from lrclib.net (requires at least a title)
+7. **Musixmatch** — Musixmatch API with metadata search (requires `MUSIXMATCH_USERTOKEN` and at least a title)
+8. **Netease** — Netease Cloud Music public API
+9. **QQ Music** — QQ Music via self-hosted API proxy (requires `QQ_MUSIC_API_URL` that provides the same interface as [tooplick/qq-music-api](https://github.com/tooplick/qq-music-api))
+
+> I'm aware that Spotify's lyrics are provided by Musixmatch, but the fact is that Musixmatch's own search will yield different (and more) results than Spotify's, so I treat them as separate sources.
 
 ## Usage
 
@@ -28,7 +32,7 @@ See `lrx --help` for full command reference. Common use cases:
   lrx fetch
   ```
 
-  using a specific player or source to fetch from:
+  targeting a specific player and a source to fetch from:
 
   ```bash
   lrx --player mpd fetch --method lrclib-search
@@ -41,7 +45,7 @@ See `lrx --help` for full command reference. Common use cases:
   lrx search --trackid "5p0ietGkLNEqx1Z7ijkw5g"
   ```
 
-  or for a local file:
+  or by path to a local audio file:
 
   ```bash
   lrx search --path "/path/to/Westlife - My Love.flac"
@@ -75,11 +79,13 @@ Set credentials via environment variable or `.env` file:
 
 ```env
 SPOTIFY_SP_DC=your_cookie_value
+MUSIXMATCH_USERTOKEN=your_musixmatch_usertoken
 QQ_MUSIC_API_URL=https://api.example.com
 PREFERRED_PLAYER=spotify
 ```
 
 - `SPOTIFY_SP_DC` — required for Spotify source. Defaults to empty (disabled Spotify source).
+- `MUSIXMATCH_USERTOKEN` — required for Musixmatch sources ([Curators Settings Page](https://curators.musixmatch.com/settings) -> Login (if required) -> "Copy debug info")
 - `QQ_MUSIC_API_URL` — required for QQ Music source. Defaults to empty (disabled QQ Music source).
 - `PREFERRED_PLAYER` — preferred MPRIS player when multiple are active. Defaults to `spotify`. Only used when no `--player` flag is given and more than one player (or none of them) is currently playing.
 

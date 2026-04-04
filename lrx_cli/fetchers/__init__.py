@@ -13,6 +13,7 @@ from .cache_search import CacheSearchFetcher
 from .spotify import SpotifyFetcher
 from .lrclib import LrclibFetcher
 from .lrclib_search import LrclibSearchFetcher
+from .musixmatch import MusixmatchFetcher, MusixmatchSpotifyFetcher
 from .netease import NeteaseFetcher
 from .qqmusic import QQMusicFetcher
 from ..cache import CacheEngine
@@ -23,9 +24,11 @@ FetcherMethodType = Literal[
     "cache-search",
     "spotify",
     "lrclib",
+    "musixmatch-spotify",
     "lrclib-search",
     "netease",
     "qqmusic",
+    "musixmatch",
 ]
 
 # Fetchers within a group run in parallel; groups run sequentially.
@@ -34,8 +37,9 @@ _FETCHER_GROUPS: list[list[FetcherMethodType]] = [
     ["local"],
     ["cache-search"],
     ["spotify"],
-    ["lrclib"],
-    ["lrclib-search", "netease", "qqmusic"],
+    ["lrclib", "musixmatch-spotify"],
+    ["lrclib-search", "musixmatch"],
+    ["netease", "qqmusic"],
 ]
 
 
@@ -46,9 +50,11 @@ def create_fetchers(cache: CacheEngine) -> dict[FetcherMethodType, BaseFetcher]:
         "cache-search": CacheSearchFetcher(cache),
         "spotify": SpotifyFetcher(),
         "lrclib": LrclibFetcher(),
+        "musixmatch-spotify": MusixmatchSpotifyFetcher(),
         "lrclib-search": LrclibSearchFetcher(),
         "netease": NeteaseFetcher(),
         "qqmusic": QQMusicFetcher(),
+        "musixmatch": MusixmatchFetcher(),
     }
     return fetchers
 
