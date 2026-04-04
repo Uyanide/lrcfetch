@@ -9,6 +9,7 @@ Used when metadata is incomplete (no album or duration) but title is available.
 Selects the best match by duration when track length is known.
 """
 
+import asyncio
 import httpx
 from typing import Optional
 from loguru import logger
@@ -80,29 +81,35 @@ class LrclibSearchFetcher(BaseFetcher):
 
         try:
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-                for params in queries:
+
+                async def _query(params: dict[str, str]) -> tuple[list[dict], bool]:
                     url = f"{LRCLIB_SEARCH_URL}?{urlencode(params)}"
                     logger.debug(f"LRCLIB-search: query {params}")
-                    resp = await client.get(url, headers={"User-Agent": UA_LRX})
-
+                    try:
+                        resp = await client.get(url, headers={"User-Agent": UA_LRX})
+                    except httpx.HTTPError as e:
+                        logger.error(f"LRCLIB-search: HTTP error: {e}")
+                        return [], True
                     if resp.status_code != 200:
                         logger.error(f"LRCLIB-search: API returned {resp.status_code}")
-                        had_error = True
-                        continue
-
+                        return [], True
                     data = resp.json()
                     if not isinstance(data, list):
-                        continue
+                        return [], False
+                    return [item for item in data if isinstance(item, dict)], False
 
-                    for item in data:
-                        if not isinstance(item, dict):
-                            continue
-                        item_id = item.get("id")
-                        if item_id is not None and item_id in seen_ids:
-                            continue
-                        if item_id is not None:
-                            seen_ids.add(item_id)
-                        candidates.append(item)
+                all_results = await asyncio.gather(*(_query(p) for p in queries))
+
+            for items, err in all_results:
+                if err:
+                    had_error = True
+                for item in items:
+                    item_id = item.get("id")
+                    if item_id is not None and item_id in seen_ids:
+                        continue
+                    if item_id is not None:
+                        seen_ids.add(item_id)
+                    candidates.append(item)
 
             if not candidates:
                 if had_error:
