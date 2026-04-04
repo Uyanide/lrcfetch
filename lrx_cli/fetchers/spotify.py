@@ -31,7 +31,6 @@ from ..models import TrackMeta, LyricResult, CacheStatus
 from ..lrc import LRCData
 from ..config import (
     HTTP_TIMEOUT,
-    SPOTIFY_APP_VERSION,
     TTL_NOT_FOUND,
     TTL_NETWORK_ERROR,
     SPOTIFY_TOKEN_URL,
@@ -42,6 +41,13 @@ from ..config import (
     SPOTIFY_TOKEN_CACHE_FILE,
     UA_BROWSER,
 )
+
+_SPOTIFY_BASE_HEADERS = {
+    "Referer": "https://open.spotify.com/",
+    "Origin": "https://open.spotify.com",
+    "App-Platform": "WebPlayer",
+    "Spotify-App-Version": "1.2.88.21.g8e037c8f",
+}
 
 
 class SpotifyFetcher(BaseFetcher):
@@ -198,8 +204,8 @@ class SpotifyFetcher(BaseFetcher):
         headers = {
             "User-Agent": UA_BROWSER,
             "Accept": "*/*",
-            "Referer": "https://open.spotify.com/",
             "Cookie": f"sp_dc={SPOTIFY_SP_DC}",
+            **_SPOTIFY_BASE_HEADERS,
         }
 
         async with httpx.AsyncClient(headers=headers) as client:
@@ -281,10 +287,7 @@ class SpotifyFetcher(BaseFetcher):
             "User-Agent": UA_BROWSER,
             "Accept": "application/json",
             "Authorization": f"Bearer {token}",
-            "Referer": "https://open.spotify.com/",
-            "App-Platform": "WebPlayer",
-            "Spotify-App-Version": SPOTIFY_APP_VERSION,
-            "Origin": "https://open.spotify.com",
+            **_SPOTIFY_BASE_HEADERS,
         }
 
         try:

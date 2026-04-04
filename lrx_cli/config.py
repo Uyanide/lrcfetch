@@ -67,7 +67,6 @@ SPOTIFY_SECRET_URL = (
 )
 SPOTIFY_SP_DC = os.environ.get("SPOTIFY_SP_DC", "")
 SPOTIFY_TOKEN_CACHE_FILE = os.path.join(CACHE_DIR, "spotify_token.json")
-SPOTIFY_APP_VERSION = "1.2.88.21.g8e037c8f"
 
 # Netease api
 NETEASE_SEARCH_URL = "https://music.163.com/api/cloudsearch/pc"
