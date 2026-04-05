@@ -314,7 +314,7 @@ def test_update_confidence_targets_specific_source(cache_db: CacheEngine) -> Non
     assert updated == 1
     rows = {r["source"]: r for r in cache_db.query_track(track)}
     assert rows["s1"]["confidence"] == 75.0
-    assert rows["s2"]["confidence"] == 100.0  # unchanged
+    assert rows["s2"]["confidence"] == 90.0  # unchanged (unsynced default)
 
 
 def test_update_confidence_returns_zero_for_missing_source(
