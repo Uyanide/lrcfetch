@@ -6,42 +6,34 @@ Description: Musixmatch fetchers (desktop API, usertoken auth)
 
 """
 Uses the Musixmatch desktop API (apic-desktop.musixmatch.com).
-Requires MUSIXMATCH_USERTOKEN from https://curators.musixmatch.com/settings
-→ "Copy debug info" → find UserToken.
+Token and all HTTP calls are managed by MusixmatchAuthenticator.
 
 Two fetchers:
   musixmatch-spotify  — direct lookup by Spotify track ID (exact, no search)
-  musixmatch          — metadata search + multi-candidate fallback
+  musixmatch          — metadata search + best-candidate fallback
 """
 
 import json
 from typing import Optional
-from urllib.parse import urlencode
-
-import httpx
 from loguru import logger
 
 from .base import BaseFetcher
 from .selection import SearchCandidate, select_best
+from ..authenticators.musixmatch import MusixmatchAuthenticator
 from ..lrc import LRCData
 from ..models import CacheStatus, LyricResult, TrackMeta
 from ..config import (
-    HTTP_TIMEOUT,
     MUSIXMATCH_MACRO_URL,
     MUSIXMATCH_SEARCH_URL,
-    MUSIXMATCH_USERTOKEN,
     TTL_NETWORK_ERROR,
     TTL_NOT_FOUND,
 )
 
-_MXM_HEADERS = {"Cookie": "x-mxm-token-guid="}
-
-_MXM_MACRO_BASE_PARAMS: dict[str, str] = {
-    "format": "json",
+# Macro-specific params (format/app_id injected by authenticator)
+_MXM_MACRO_PARAMS = {
     "namespace": "lyrics_richsynched",
     "subtitle_format": "mxm",
     "optional_calls": "track.richsync",
-    "app_id": "web-desktop-app-v1.0",
 }
 
 
@@ -96,23 +88,19 @@ def _parse_subtitle(body: str) -> Optional[str]:
 
 
 async def _fetch_macro(
-    client: httpx.AsyncClient,
-    params: dict[str, str],
+    auth: MusixmatchAuthenticator,
+    params: dict,
 ) -> Optional[LRCData]:
+    """Call macro.subtitles.get via auth.get_json.
+
+    Returns LRCData (richsync preferred over subtitle), or None when no usable
+    lyrics are found. Raises on HTTP/network errors.
     """
-    Call macro.subtitles.get with given params merged onto base params.
-    Returns LRCData on success (richsync preferred over subtitle),
-    None when the API returns no usable lyrics.
-    Raises on HTTP/network errors.
-    """
-    merged = {**_MXM_MACRO_BASE_PARAMS, **params}
-    url = f"{MUSIXMATCH_MACRO_URL}?{urlencode(merged)}"
     logger.debug(f"Musixmatch: macro call with {list(params.keys())}")
+    data = await auth.get_json(MUSIXMATCH_MACRO_URL, {**_MXM_MACRO_PARAMS, **params})
+    if data is None:
+        return None
 
-    resp = await client.get(url, headers=_MXM_HEADERS)
-    resp.raise_for_status()
-
-    data = resp.json()
     # Musixmatch returns body=[] (not {}) when the track is not found
     body = data.get("message", {}).get("body", {})
     if not isinstance(body, dict):
@@ -162,26 +150,26 @@ async def _fetch_macro(
 class MusixmatchSpotifyFetcher(BaseFetcher):
     """Direct lookup by Spotify track ID — no search, single request."""
 
+    def __init__(self, auth: MusixmatchAuthenticator) -> None:
+        self.auth = auth
+
     @property
     def source_name(self) -> str:
         return "musixmatch-spotify"
 
     def is_available(self, track: TrackMeta) -> bool:
-        return bool(track.trackid) and bool(MUSIXMATCH_USERTOKEN)
+        return bool(track.trackid) and not self.auth.is_cooldown()
 
     async def fetch(
         self, track: TrackMeta, bypass_cache: bool = False
     ) -> Optional[LyricResult]:
         logger.info(f"Musixmatch-Spotify: fetching lyrics for {track.display_name()}")
+
         try:
-            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-                lrc = await _fetch_macro(
-                    client,
-                    {
-                        "track_spotify_id": track.trackid,  # type: ignore[dict-item]
-                        "usertoken": MUSIXMATCH_USERTOKEN,
-                    },
-                )
+            lrc = await _fetch_macro(
+                self.auth,
+                {"track_spotify_id": track.trackid},  # type: ignore[dict-item]
+            )
         except Exception as e:
             logger.error(f"Musixmatch-Spotify: fetch failed: {e}")
             return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
@@ -201,21 +189,26 @@ class MusixmatchSpotifyFetcher(BaseFetcher):
 
 
 class MusixmatchFetcher(BaseFetcher):
-    """Metadata search + multi-candidate fallback."""
+    """Metadata search + best-candidate lyric fetch."""
+
+    def __init__(self, auth: MusixmatchAuthenticator) -> None:
+        self.auth = auth
 
     @property
     def source_name(self) -> str:
         return "musixmatch"
 
+    @property
+    def requires_auth(self) -> str:
+        return "musixmatch"
+
     def is_available(self, track: TrackMeta) -> bool:
-        return bool(track.title) and bool(MUSIXMATCH_USERTOKEN)
+        return bool(track.title) and not self.auth.is_cooldown()
 
     async def _search(self, track: TrackMeta) -> tuple[Optional[int], float]:
-        params: dict[str, str] = {
-            "format": "json",
-            "app_id": "web-desktop-app-v1.0",
+        """Search for track metadata. Raises on network/HTTP errors."""
+        params: dict = {
             "q_track": track.title or "",
-            "usertoken": MUSIXMATCH_USERTOKEN,
             "page_size": "10",
             "f_has_lyrics": "1",
         }
@@ -224,79 +217,64 @@ class MusixmatchFetcher(BaseFetcher):
         if track.album:
             params["q_album"] = track.album
 
-        url = f"{MUSIXMATCH_SEARCH_URL}?{urlencode(params)}"
         logger.debug(f"Musixmatch: searching for '{track.display_name()}'")
-
-        try:
-            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-                resp = await client.get(url, headers=_MXM_HEADERS)
-                resp.raise_for_status()
-                data = resp.json()
-
-            track_list = data.get("message", {}).get("body", {}).get("track_list", [])
-            if not isinstance(track_list, list) or not track_list:
-                logger.debug("Musixmatch: search returned 0 results")
-                return None, 0.0
-
-            logger.debug(f"Musixmatch: search returned {len(track_list)} candidates")
-
-            candidates = [
-                SearchCandidate(
-                    item=int(t["commontrack_id"]),
-                    duration_ms=(
-                        float(t["track_length"]) * 1000
-                        if t.get("track_length")
-                        else None
-                    ),
-                    is_synced=bool(t.get("has_subtitles") or t.get("has_richsync")),
-                    title=t.get("track_name"),
-                    artist=t.get("artist_name"),
-                    album=t.get("album_name"),
-                )
-                for item in track_list
-                if isinstance(item, dict)
-                and isinstance(t := item.get("track", {}), dict)
-                and isinstance(t.get("commontrack_id"), int)
-                and not t.get("instrumental")
-            ]
-
-            best_id, confidence = select_best(
-                candidates,
-                track.length,
-                title=track.title,
-                artist=track.artist,
-                album=track.album,
-            )
-            if best_id is not None:
-                logger.debug(
-                    f"Musixmatch: best candidate id={best_id} ({confidence:.0f})"
-                )
-            else:
-                logger.debug("Musixmatch: no suitable candidate found")
-            return best_id, confidence
-
-        except Exception as e:
-            logger.error(f"Musixmatch: search failed: {e}")
+        data = await self.auth.get_json(MUSIXMATCH_SEARCH_URL, params)
+        if data is None:
             return None, 0.0
+
+        track_list = data.get("message", {}).get("body", {}).get("track_list", [])
+        if not isinstance(track_list, list) or not track_list:
+            logger.debug("Musixmatch: search returned 0 results")
+            return None, 0.0
+
+        logger.debug(f"Musixmatch: search returned {len(track_list)} candidates")
+
+        candidates = [
+            SearchCandidate(
+                item=int(t["commontrack_id"]),
+                duration_ms=(
+                    float(t["track_length"]) * 1000 if t.get("track_length") else None
+                ),
+                is_synced=bool(t.get("has_subtitles") or t.get("has_richsync")),
+                title=t.get("track_name"),
+                artist=t.get("artist_name"),
+                album=t.get("album_name"),
+            )
+            for item in track_list
+            if isinstance(item, dict)
+            and isinstance(t := item.get("track", {}), dict)
+            and isinstance(t.get("commontrack_id"), int)
+            and not t.get("instrumental")
+        ]
+
+        best_id, confidence = select_best(
+            candidates,
+            track.length,
+            title=track.title,
+            artist=track.artist,
+            album=track.album,
+        )
+        if best_id is not None:
+            logger.debug(f"Musixmatch: best candidate id={best_id} ({confidence:.0f})")
+        else:
+            logger.debug("Musixmatch: no suitable candidate found")
+        return best_id, confidence
 
     async def fetch(
         self, track: TrackMeta, bypass_cache: bool = False
     ) -> Optional[LyricResult]:
         logger.info(f"Musixmatch: fetching lyrics for {track.display_name()}")
-        commontrack_id, confidence = await self._search(track)
-        if commontrack_id is None:
-            logger.debug(f"Musixmatch: no match found for {track.display_name()}")
-            return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
 
         try:
-            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-                lrc = await _fetch_macro(
-                    client,
-                    {
-                        "commontrack_id": str(commontrack_id),
-                        "usertoken": MUSIXMATCH_USERTOKEN,
-                    },
-                )
+            commontrack_id, confidence = await self._search(track)
+            if commontrack_id is None:
+                logger.debug(f"Musixmatch: no match found for {track.display_name()}")
+                return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+
+            lrc = await _fetch_macro(
+                self.auth,
+                {"commontrack_id": str(commontrack_id)},
+            )
         except Exception as e:
             logger.error(f"Musixmatch: fetch failed: {e}")
             return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)

@@ -4,41 +4,19 @@ Date: 2026-03-25 10:43:21
 Description: Spotify fetcher — obtains synced lyrics via Spotify's internal color-lyrics API.
 """
 
-"""
-Authentication flow:
-  1. Fetch server time from Spotify
-  2. Fetch TOTP secret
-  3. Generate a TOTP code and exchange it (with SP_DC cookie) for an access token
-  4. Request lyrics using the access token
-
-The secret and token are cached on the instance to avoid redundant network
-calls within the same session.
-
-Requires SPOTIFY_SP_DC environment variable to be set.
-"""
-
 import httpx
-import json
-import time
-import struct
-import hmac
-import hashlib
-from typing import Optional, Tuple
+from typing import Optional
 from loguru import logger
 
 from .base import BaseFetcher
+from ..authenticators.spotify import SpotifyAuthenticator
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..lrc import LRCData
 from ..config import (
     HTTP_TIMEOUT,
     TTL_NOT_FOUND,
     TTL_NETWORK_ERROR,
-    SPOTIFY_TOKEN_URL,
     SPOTIFY_LYRICS_URL,
-    SPOTIFY_SERVER_TIME_URL,
-    SPOTIFY_SECRET_URL,
-    SPOTIFY_SP_DC,
-    SPOTIFY_TOKEN_CACHE_FILE,
     UA_BROWSER,
 )
 
@@ -51,72 +29,18 @@ _SPOTIFY_BASE_HEADERS = {
 
 
 class SpotifyFetcher(BaseFetcher):
-    def __init__(self) -> None:
-        # Session-level caches to avoid refetching within the same run
-        self._cached_secret: Optional[Tuple[str, int]] = None
-        self._cached_token: Optional[str] = None
-        self._token_expires_at: float = 0.0
+    def __init__(self, auth: SpotifyAuthenticator) -> None:
+        self.auth = auth
 
     @property
     def source_name(self) -> str:
         return "spotify"
 
     def is_available(self, track: TrackMeta) -> bool:
-        return bool(track.trackid) and bool(SPOTIFY_SP_DC)
-
-    @staticmethod
-    def _generate_totp(server_time_s: int, secret: str) -> str:
-        """Generate a 6-digit TOTP code compatible with Spotify's auth.
-
-        Uses HMAC-SHA1 with a 30-second period, matching the Go reference.
-        """
-        counter = server_time_s // 30
-        counter_bytes = struct.pack(">Q", counter)
-
-        mac = hmac.new(secret.encode(), counter_bytes, hashlib.sha1).digest()
-
-        offset = mac[-1] & 0x0F
-        binary_code = (
-            (mac[offset] & 0x7F) << 24
-            | (mac[offset + 1] & 0xFF) << 16
-            | (mac[offset + 2] & 0xFF) << 8
-            | (mac[offset + 3] & 0xFF)
-        )
-
-        code = binary_code % (10**6)
-        return str(code).zfill(6)
-
-    def _load_cached_token(self) -> Optional[str]:
-        """Try to load a valid token from the persistent cache file."""
-        try:
-            with open(SPOTIFY_TOKEN_CACHE_FILE, "r") as f:
-                data = json.load(f)
-            expires_ms = data.get("accessTokenExpirationTimestampMs", 0)
-            if expires_ms <= int(time.time() * 1000):
-                logger.debug("Spotify: persisted token expired")
-                return None
-            token = data.get("accessToken", "")
-            if not token:
-                return None
-            self._cached_token = token
-            self._token_expires_at = expires_ms / 1000.0
-            logger.debug("Spotify: loaded token from cache file")
-            return token
-        except (FileNotFoundError, json.JSONDecodeError, KeyError):
-            return None
-
-    def _save_token(self, body: dict) -> None:
-        """Persist the token response to disk."""
-        try:
-            with open(SPOTIFY_TOKEN_CACHE_FILE, "w") as f:
-                json.dump(body, f)
-            logger.debug("Spotify: token saved to cache file")
-        except Exception as e:
-            logger.warning(f"Spotify: failed to write token cache: {e}")
+        return bool(track.trackid) and self.auth.is_configured()
 
     @staticmethod
     def _format_lrc_line(start_ms: int, words: str) -> str:
-        """Format a single lyric line as LRC ``[mm:ss.cc]text``."""
         minutes = start_ms // 60000
         seconds = (start_ms // 1000) % 60
         centiseconds = round((start_ms % 1000) / 10.0)
@@ -124,7 +48,6 @@ class SpotifyFetcher(BaseFetcher):
 
     @staticmethod
     def _is_truly_synced(lines: list[dict]) -> bool:
-        """Check if lyrics are actually synced (not all timestamps zero)."""
         for line in lines:
             try:
                 ms = int(line.get("startTimeMs", "0"))
@@ -133,140 +56,6 @@ class SpotifyFetcher(BaseFetcher):
             except (ValueError, TypeError):
                 continue
         return False
-
-    async def _get_server_time(self, client: httpx.AsyncClient) -> Optional[int]:
-        try:
-            res = await client.get(SPOTIFY_SERVER_TIME_URL, timeout=HTTP_TIMEOUT)
-            res.raise_for_status()
-            data = res.json()
-            if not isinstance(data, dict) or "serverTime" not in data:
-                logger.error(f"Spotify: unexpected server-time response: {data}")
-                return None
-            server_time = data["serverTime"]
-            logger.debug(f"Spotify: server time = {server_time}")
-            return server_time
-        except Exception as e:
-            logger.error(f"Spotify: failed to fetch server time: {e}")
-            return None
-
-    async def _get_secret(self, client: httpx.AsyncClient) -> Optional[Tuple[str, int]]:
-        if self._cached_secret is not None:
-            logger.debug("Spotify: using cached TOTP secret")
-            return self._cached_secret
-
-        try:
-            res = await client.get(SPOTIFY_SECRET_URL, timeout=HTTP_TIMEOUT)
-            res.raise_for_status()
-            data = res.json()
-
-            if not isinstance(data, list) or len(data) == 0:
-                logger.error(
-                    f"Spotify: unexpected secrets response (type={type(data).__name__}, len={len(data) if isinstance(data, list) else '?'})"
-                )
-                return None
-
-            last = data[-1]
-            if "secret" not in last or "version" not in last:
-                logger.error(f"Spotify: malformed secret entry: {list(last.keys())}")
-                return None
-
-            secret_raw = last["secret"]
-            version = last["version"]
-
-            parts = []
-            for i, char in enumerate(secret_raw):
-                parts.append(str(ord(char) ^ ((i % 33) + 9)))
-            secret = "".join(parts)
-
-            logger.debug(f"Spotify: decoded secret v{version} (len={len(secret)})")
-            self._cached_secret = (secret, version)
-            return self._cached_secret
-
-        except Exception as e:
-            logger.error(f"Spotify: failed to fetch secret: {e}")
-            return None
-
-    async def _get_token(self) -> Optional[str]:
-        if self._cached_token and time.time() < self._token_expires_at - 30:
-            logger.debug("Spotify: using in-memory cached token")
-            return self._cached_token
-
-        disk_token = self._load_cached_token()
-        if disk_token and time.time() < self._token_expires_at - 30:
-            return disk_token
-
-        if not SPOTIFY_SP_DC:
-            logger.error(
-                "Spotify: SPOTIFY_SP_DC env var not set — cannot authenticate with Spotify"
-            )
-            return None
-
-        headers = {
-            "User-Agent": UA_BROWSER,
-            "Accept": "*/*",
-            "Cookie": f"sp_dc={SPOTIFY_SP_DC}",
-            **_SPOTIFY_BASE_HEADERS,
-        }
-
-        async with httpx.AsyncClient(headers=headers) as client:
-            server_time = await self._get_server_time(client)
-            if server_time is None:
-                return None
-
-            secret_data = await self._get_secret(client)
-            if secret_data is None:
-                return None
-
-            secret, version = secret_data
-            totp = self._generate_totp(server_time, secret)
-            logger.debug(f"Spotify: generated TOTP v{version}: {totp}")
-
-            params = {
-                "reason": "init",
-                "productType": "web-player",
-                "totp": totp,
-                "totpVer": str(version),
-                "totpServer": totp,
-            }
-
-            try:
-                res = await client.get(
-                    SPOTIFY_TOKEN_URL, params=params, timeout=HTTP_TIMEOUT
-                )
-                if res.status_code != 200:
-                    logger.error(f"Spotify: token request returned {res.status_code}")
-                    return None
-
-                body = res.json()
-
-                if not isinstance(body, dict) or "accessToken" not in body:
-                    logger.error(
-                        f"Spotify: unexpected token response keys: {list(body.keys()) if isinstance(body, dict) else type(body).__name__}"
-                    )
-                    return None
-
-                token = body["accessToken"]
-                is_anonymous = body.get("isAnonymous", False)
-                if is_anonymous:
-                    logger.warning(
-                        "Spotify: received anonymous token — SP_DC may be invalid"
-                    )
-
-                expires_ms = body.get("accessTokenExpirationTimestampMs", 0)
-                if expires_ms and expires_ms > int(time.time() * 1000):
-                    self._token_expires_at = expires_ms / 1000.0
-                else:
-                    logger.warning("Spotify: token expiry missing or invalid")
-                    self._token_expires_at = time.time() + 3600
-
-                self._cached_token = token
-                self._save_token(body)
-                logger.debug("Spotify: obtained access token")
-                return token
-
-            except Exception as e:
-                logger.error(f"Spotify: token request failed: {e}")
-                return None
 
     async def fetch(
         self, track: TrackMeta, bypass_cache: bool = False
@@ -277,7 +66,7 @@ class SpotifyFetcher(BaseFetcher):
 
         logger.info(f"Spotify: fetching lyrics for trackid={track.trackid}")
 
-        token = await self._get_token()
+        token = await self.auth.authenticate()
         if not token:
             logger.error("Spotify: cannot fetch lyrics without a token")
             return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)

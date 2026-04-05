@@ -5,29 +5,20 @@ Description: Musixmatch metadata enricher (matcher.track.get by Spotify track ID
 """
 
 from typing import Optional
-from urllib.parse import urlencode
 
-import httpx
 from loguru import logger
 
 from .base import BaseEnricher
+from ..authenticators.musixmatch import MusixmatchAuthenticator
 from ..models import TrackMeta
-from ..config import (
-    HTTP_TIMEOUT,
-    MUSIXMATCH_TRACK_MATCH_URL,
-    MUSIXMATCH_USERTOKEN,
-)
-
-_MXM_HEADERS = {"Cookie": "x-mxm-token-guid="}
-_MXM_TRACK_MATCH_BASE_PARAMS = {
-    "format": "json",
-    "app_id": "web-desktop-app-v1.0",
-    "usertoken": MUSIXMATCH_USERTOKEN,
-}
+from ..config import MUSIXMATCH_TRACK_MATCH_URL
 
 
 class MusixmatchSpotifyEnricher(BaseEnricher):
     """Fill title, artist, album, and length from Musixmatch using Spotify track ID."""
+
+    def __init__(self, auth: MusixmatchAuthenticator) -> None:
+        self.auth = auth
 
     @property
     def name(self) -> str:
@@ -38,23 +29,21 @@ class MusixmatchSpotifyEnricher(BaseEnricher):
         return {"title", "artist", "album", "length"}
 
     async def enrich(self, track: TrackMeta) -> Optional[dict]:
-        if not track.trackid or not MUSIXMATCH_USERTOKEN:
+        if not track.trackid:
             return None
 
-        params = {
-            **_MXM_TRACK_MATCH_BASE_PARAMS,
-            "track_spotify_id": track.trackid,
-        }
-        url = f"{MUSIXMATCH_TRACK_MATCH_URL}?{urlencode(params)}"
         logger.debug(f"Musixmatch enricher: looking up trackid={track.trackid}")
 
         try:
-            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-                resp = await client.get(url, headers=_MXM_HEADERS)
-                resp.raise_for_status()
-                data = resp.json()
+            data = await self.auth.get_json(
+                MUSIXMATCH_TRACK_MATCH_URL,
+                {"track_spotify_id": track.trackid},
+            )
         except Exception as e:
             logger.warning(f"Musixmatch enricher: request failed: {e}")
+            return None
+
+        if data is None:
             return None
 
         body = data.get("message", {}).get("body")

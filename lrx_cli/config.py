@@ -66,7 +66,6 @@ SPOTIFY_SECRET_URL = (
     "/refs/heads/main/secrets/secrets.json"
 )
 SPOTIFY_SP_DC = os.environ.get("SPOTIFY_SP_DC", "")
-SPOTIFY_TOKEN_CACHE_FILE = os.path.join(CACHE_DIR, "spotify_token.json")
 
 # Netease api
 NETEASE_SEARCH_URL = "https://music.163.com/api/cloudsearch/pc"
@@ -81,11 +80,13 @@ QQ_MUSIC_API_URL = os.environ.get("QQ_MUSIC_API_URL", "").rstrip("/")
 
 # Musixmatch desktop API
 MUSIXMATCH_USERTOKEN = os.environ.get("MUSIXMATCH_USERTOKEN", "")
+MUSIXMATCH_TOKEN_URL = "https://apic-desktop.musixmatch.com/ws/1.1/token.get"
 MUSIXMATCH_SEARCH_URL = "https://apic-desktop.musixmatch.com/ws/1.1/track.search"
 MUSIXMATCH_MACRO_URL = "https://apic-desktop.musixmatch.com/ws/1.1/macro.subtitles.get"
 MUSIXMATCH_TRACK_MATCH_URL = (
     "https://apic-desktop.musixmatch.com/ws/1.1/matcher.track.get"
 )
+MUSIXMATCH_COOLDOWN_MS = 600_000  # 10 minutes
 
 # Player preference (used when multiple MPRIS players are active)
 PREFERRED_PLAYER = os.environ.get("PREFERRED_PLAYER", "spotify")

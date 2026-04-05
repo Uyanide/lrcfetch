@@ -10,6 +10,7 @@ from loguru import logger
 
 from .fetchers import FetcherMethodType, build_plan, create_fetchers
 from .fetchers.base import BaseFetcher
+from .authenticators import create_authenticators
 from .cache import CacheEngine
 from .lrc import LRCData
 from .config import (
@@ -20,7 +21,7 @@ from .config import (
     HIGH_CONFIDENCE,
 )
 from .models import TrackMeta, LyricResult, CacheStatus
-from .enrichers import enrich_track
+from .enrichers import create_enrichers, enrich_track
 
 
 # Maps CacheStatus to the default TTL used when storing results
@@ -61,7 +62,9 @@ class LrcManager:
 
     def __init__(self, db_path: str) -> None:
         self.cache = CacheEngine(db_path=db_path)
-        self.fetchers = create_fetchers(self.cache)
+        self.authenticators = create_authenticators(self.cache)
+        self.fetchers = create_fetchers(self.cache, self.authenticators)
+        self.enrichers = create_enrichers(self.authenticators)
 
     async def _run_group(
         self,
@@ -161,7 +164,7 @@ class LrcManager:
         force_method: Optional[FetcherMethodType],
         bypass_cache: bool,
     ) -> Optional[LyricResult]:
-        track = await enrich_track(track)
+        track = await enrich_track(track, self.enrichers)
         logger.info(f"Fetching lyrics for: {track.display_name()}")
 
         plan = build_plan(self.fetchers, track, force_method)
@@ -217,7 +220,7 @@ class LrcManager:
         lyrics: str,
     ) -> None:
         """Manually insert lyrics into the cache for a track."""
-        track = asyncio.run(enrich_track(track))
+        track = asyncio.run(enrich_track(track, self.enrichers))
         logger.info(f"Manually inserting lyrics for: {track.display_name()}")
         lrc = LRCData(lyrics)
         result = LyricResult(

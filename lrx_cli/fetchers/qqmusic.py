@@ -25,17 +25,20 @@ from ..config import (
     TTL_NOT_FOUND,
     TTL_NETWORK_ERROR,
     MULTI_CANDIDATE_DELAY_S,
-    QQ_MUSIC_API_URL,
 )
+from ..authenticators import QQMusicAuthenticator
 
 
 class QQMusicFetcher(BaseFetcher):
+    def __init__(self, auth: QQMusicAuthenticator) -> None:
+        self.auth = auth
+
     @property
     def source_name(self) -> str:
         return "qqmusic"
 
     def is_available(self, track: TrackMeta) -> bool:
-        return bool(track.title) and bool(QQ_MUSIC_API_URL)
+        return bool(track.title) and self.auth.is_configured()
 
     async def _search(
         self, track: TrackMeta, limit: int = 10
@@ -49,7 +52,7 @@ class QQMusicFetcher(BaseFetcher):
         try:
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
                 resp = await client.get(
-                    f"{QQ_MUSIC_API_URL}/api/search",
+                    f"{self.auth.authenticate()}/api/search",
                     params={"keyword": query, "type": "song", "num": limit},
                 )
                 resp.raise_for_status()
@@ -108,7 +111,7 @@ class QQMusicFetcher(BaseFetcher):
         try:
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
                 resp = await client.get(
-                    f"{QQ_MUSIC_API_URL}/api/lyric",
+                    f"{self.auth.authenticate()}/api/lyric",
                     params={"mid": mid},
                 )
                 resp.raise_for_status()
@@ -144,8 +147,8 @@ class QQMusicFetcher(BaseFetcher):
     async def fetch(
         self, track: TrackMeta, bypass_cache: bool = False
     ) -> Optional[LyricResult]:
-        if not QQ_MUSIC_API_URL:
-            logger.debug("QQMusic: skipped — QQ_MUSIC_API_URL not configured")
+        if not self.auth.is_configured():
+            logger.debug("QQMusic: skipped — Auth not configured")
             return None
 
         query = f"{track.artist or ''} {track.title or ''}".strip()

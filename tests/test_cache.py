@@ -334,6 +334,48 @@ def test_update_confidence_returns_zero_for_empty_track(
     assert cache_db.update_confidence(empty, 50.0, "s1") == 0
 
 
+def test_credential_set_and_get_roundtrip(cache_db: CacheEngine) -> None:
+    cache_db.set_credential("spotify", {"access_token": "tok", "expires_in": 3600})
+    result = cache_db.get_credential("spotify")
+    assert result == {"access_token": "tok", "expires_in": 3600}
+
+
+def test_credential_get_returns_none_on_miss(cache_db: CacheEngine) -> None:
+    assert cache_db.get_credential("nonexistent") is None
+
+
+def test_credential_expires_at_respected(
+    monkeypatch: pytest.MonkeyPatch, cache_db: CacheEngine
+) -> None:
+    # Store with expiry 1000 ms in the future
+    now_ms = 5_000_000_000
+    monkeypatch.setattr("lrx_cli.cache.time.time", lambda: now_ms / 1000)
+    cache_db.set_credential(
+        "musixmatch", {"user_token": "abc"}, expires_at_ms=now_ms + 1000
+    )
+
+    # Still valid
+    assert cache_db.get_credential("musixmatch") == {"user_token": "abc"}
+
+    # Advance past expiry
+    monkeypatch.setattr("lrx_cli.cache.time.time", lambda: (now_ms + 2000) / 1000)
+    assert cache_db.get_credential("musixmatch") is None
+
+
+def test_credential_no_expiry_never_expires(
+    monkeypatch: pytest.MonkeyPatch, cache_db: CacheEngine
+) -> None:
+    cache_db.set_credential("spotify", {"token": "forever"}, expires_at_ms=None)
+    monkeypatch.setattr("lrx_cli.cache.time.time", lambda: 9_999_999_999.0)
+    assert cache_db.get_credential("spotify") == {"token": "forever"}
+
+
+def test_credential_set_overwrites_existing(cache_db: CacheEngine) -> None:
+    cache_db.set_credential("spotify", {"token": "old"})
+    cache_db.set_credential("spotify", {"token": "new"})
+    assert cache_db.get_credential("spotify") == {"token": "new"}
+
+
 def test_query_track_and_stats_return_expected_aggregates(
     cache_db: CacheEngine,
 ) -> None:

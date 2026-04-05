@@ -4,6 +4,7 @@ Date: 2026-03-25 10:18:03
 Description: SQLite-based lyric cache with per-source storage and TTL expiration
 """
 
+import json
 import sqlite3
 import hashlib
 import time
@@ -72,6 +73,13 @@ class CacheEngine:
                     artist TEXT,
                     title TEXT,
                     album TEXT
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS credentials (
+                    name TEXT PRIMARY KEY,
+                    data TEXT NOT NULL,
+                    expires_at INTEGER
                 )
             """)
             # Migrations
@@ -441,6 +449,35 @@ class CacheEngine:
                     f"SELECT * FROM cache WHERE {where}", params
                 ).fetchall()
             ]
+
+    # Credentials
+
+    def get_credential(self, name: str) -> Optional[dict]:
+        """Return cached credential data if present and not expired."""
+        now_ms = int(time.time() * 1000)
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT data FROM credentials WHERE name = ? AND (expires_at IS NULL OR expires_at > ?)",
+                (name, now_ms),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            return json.loads(row["data"])
+        except (json.JSONDecodeError, KeyError):
+            return None
+
+    def set_credential(
+        self, name: str, data: dict, expires_at_ms: Optional[int] = None
+    ) -> None:
+        """Persist credential data, optionally with an expiry timestamp (Unix ms)."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO credentials (name, data, expires_at) VALUES (?, ?, ?)",
+                (name, json.dumps(data), expires_at_ms),
+            )
+            conn.commit()
 
     def query_all(self) -> list[dict]:
         """Return every row in the cache table."""

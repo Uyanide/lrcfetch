@@ -16,6 +16,12 @@ from .lrclib_search import LrclibSearchFetcher
 from .musixmatch import MusixmatchFetcher, MusixmatchSpotifyFetcher
 from .netease import NeteaseFetcher
 from .qqmusic import QQMusicFetcher
+from ..authenticators import (
+    BaseAuthenticator,
+    SpotifyAuthenticator,
+    MusixmatchAuthenticator,
+    QQMusicAuthenticator,
+)
 from ..cache import CacheEngine
 from ..models import TrackMeta
 
@@ -43,18 +49,27 @@ _FETCHER_GROUPS: list[list[FetcherMethodType]] = [
 ]
 
 
-def create_fetchers(cache: CacheEngine) -> dict[FetcherMethodType, BaseFetcher]:
+def create_fetchers(
+    cache: CacheEngine,
+    authenticators: dict[str, BaseAuthenticator],
+) -> dict[FetcherMethodType, BaseFetcher]:
     """Instantiate all fetchers. Returns a dict keyed by source name."""
+    spotify_auth = authenticators["spotify"]
+    mxm_auth = authenticators["musixmatch"]
+    qqmusic_auth = authenticators.get("qqmusic")
+    assert isinstance(spotify_auth, SpotifyAuthenticator)
+    assert isinstance(mxm_auth, MusixmatchAuthenticator)
+    assert isinstance(qqmusic_auth, QQMusicAuthenticator)
     fetchers: dict[FetcherMethodType, BaseFetcher] = {
         "local": LocalFetcher(),
         "cache-search": CacheSearchFetcher(cache),
-        "spotify": SpotifyFetcher(),
+        "spotify": SpotifyFetcher(spotify_auth),
         "lrclib": LrclibFetcher(),
-        "musixmatch-spotify": MusixmatchSpotifyFetcher(),
+        "musixmatch-spotify": MusixmatchSpotifyFetcher(mxm_auth),
         "lrclib-search": LrclibSearchFetcher(),
         "netease": NeteaseFetcher(),
-        "qqmusic": QQMusicFetcher(),
-        "musixmatch": MusixmatchFetcher(),
+        "qqmusic": QQMusicFetcher(qqmusic_auth),
+        "musixmatch": MusixmatchFetcher(mxm_auth),
     }
     return fetchers
 
