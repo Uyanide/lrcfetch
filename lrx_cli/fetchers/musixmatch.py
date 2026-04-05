@@ -170,6 +170,8 @@ class MusixmatchSpotifyFetcher(BaseFetcher):
                 self.auth,
                 {"track_spotify_id": track.trackid},  # type: ignore[dict-item]
             )
+        except AttributeError:
+            return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
         except Exception as e:
             logger.error(f"Musixmatch-Spotify: fetch failed: {e}")
             return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
@@ -275,6 +277,8 @@ class MusixmatchFetcher(BaseFetcher):
                 self.auth,
                 {"commontrack_id": str(commontrack_id)},
             )
+        except AttributeError:
+            return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
         except Exception as e:
             logger.error(f"Musixmatch: fetch failed: {e}")
             return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
