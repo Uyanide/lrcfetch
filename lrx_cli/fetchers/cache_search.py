@@ -55,7 +55,6 @@ class CacheSearchFetcher(BaseFetcher):
 
         # Slow path: fuzzy cross-album search
         matches = self._cache.search_by_meta(
-            artist=track.artist,
             title=track.title,
             length=track.length,
         )

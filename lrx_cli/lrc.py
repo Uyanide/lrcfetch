@@ -271,18 +271,17 @@ class LRCData:
 
         return "\n".join(sorted_lines).strip()
 
-    def print_lyrics(
+    def to_lrc(
         self,
         plain: bool = False,
-    ) -> None:
-        """Print lyrics, optionally stripping tags.
+    ) -> str:
+        """Return lyrics, optionally stripping tags.
 
         Assumes text has been normalized by normalize.
         """
         if plain:
-            print(self.to_plain())
-        else:
-            print("\n".join(self._lines))
+            return self.to_plain()
+        return "\n".join(self._lines)
 
 
 def get_audio_path(audio_url: str, ensure_exists: bool = False) -> Optional[Path]:

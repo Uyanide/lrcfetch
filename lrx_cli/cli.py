@@ -120,7 +120,7 @@ def fetch(
         logger.error("Only unsynced lyrics available (--only-synced requested).")
         sys.exit(1)
 
-    result.lyrics.print_lyrics(plain=plain)
+    print(result.lyrics.to_lrc(plain=plain))
 
 
 # search
@@ -208,7 +208,7 @@ def search(
         logger.error("Only unsynced lyrics available (--only-synced requested).")
         sys.exit(1)
 
-    result.lyrics.print_lyrics(plain=plain)
+    print(result.lyrics.to_lrc(plain=plain))
 
 
 # export

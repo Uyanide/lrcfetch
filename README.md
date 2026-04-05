@@ -95,6 +95,46 @@ Shell completion (zsh/fish/bash):
 lrx --install-completion
 ```
 
+## Development
+
+Clone this repository:
+
+```bash
+git clone https://github.com/Uyanide/LRX-CLI.git
+cd LRX-CLI
+```
+
+Create a virtual environment and install dependencies (for example, using uv):
+
+```bash
+uv venv .venv
+uv sync
+```
+
+Run tests without network calls
+
+```bash
+uv run pytest -m "not network"
+```
+
+or full tests:
+
+```bash
+uv run pytest
+```
+
+Run the CLI:
+
+```bash
+uv run lrx --help
+```
+
+Install to user-level (optional):
+
+```bash
+uv tool install .
+```
+
 ## Credits
 
 - [lrclib.net](https://lrclib.net)

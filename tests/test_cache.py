@@ -289,7 +289,6 @@ def test_search_by_meta_fuzzy_rules_and_duration_sorting(cache_db: CacheEngine) 
     )
 
     rows = cache_db.search_by_meta(
-        artist="Ｂ ; A",
         title="  hello world  ",
         length=200000,
     )
