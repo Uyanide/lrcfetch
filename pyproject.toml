@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lrx-cli"
-version = "0.5.0"
+version = "0.5.1"
 description = "Fetch line-synced lyrics for your music player."
 readme = "README.md"
 requires-python = ">=3.13"

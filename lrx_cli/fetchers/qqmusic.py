@@ -52,7 +52,7 @@ class QQMusicFetcher(BaseFetcher):
         try:
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
                 resp = await client.get(
-                    f"{self.auth.authenticate()}/api/search",
+                    f"{await self.auth.authenticate()}/api/search",
                     params={"keyword": query, "type": "song", "num": limit},
                 )
                 resp.raise_for_status()
@@ -111,7 +111,7 @@ class QQMusicFetcher(BaseFetcher):
         try:
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
                 resp = await client.get(
-                    f"{self.auth.authenticate()}/api/lyric",
+                    f"{await self.auth.authenticate()}/api/lyric",
                     params={"mid": mid},
                 )
                 resp.raise_for_status()
