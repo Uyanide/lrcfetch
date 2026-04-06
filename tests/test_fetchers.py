@@ -91,26 +91,16 @@ def test_cache_search_fetcher_prefer_better_match(lrc_manager: LrcManager):
 @pytest.mark.parametrize(
     "method, expect_fail",
     [
-        ("spotify", False),
         ("lrclib", False),
         ("lrclib-search", False),
-        ("musixmatch", False),
-        ("musixmatch-spotify", False),
         ("netease", False),
-        ("qqmusic", False),
     ],
 )
-def test_remote_fetchers(
+def test_anonymous_remote_fetchers(
     lrc_manager: LrcManager, method: FetcherMethodType, expect_fail: bool
 ):
     _fetch_and_assert(lrc_manager, method, expect_fail)
 
 
-@pytest.mark.parametrize(
-    "method, expect_fail",
-    [("local", True)],
-)
-def test_local_fetcher(
-    lrc_manager: LrcManager, method: FetcherMethodType, expect_fail: bool
-):
-    _fetch_and_assert(lrc_manager, method, expect_fail)
+def test_local_fetcher(lrc_manager: LrcManager):
+    _fetch_and_assert(lrc_manager, "local", True)
