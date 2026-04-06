@@ -18,9 +18,9 @@ from ..config import (
     HTTP_TIMEOUT,
     SPOTIFY_SERVER_TIME_URL,
     SPOTIFY_SECRET_URL,
-    SPOTIFY_SP_DC,
     SPOTIFY_TOKEN_URL,
     UA_BROWSER,
+    credentials,
 )
 
 _SPOTIFY_BASE_HEADERS = {
@@ -43,7 +43,7 @@ class SpotifyAuthenticator(BaseAuthenticator):
         return "spotify"
 
     def is_configured(self) -> bool:
-        return bool(SPOTIFY_SP_DC)
+        return bool(credentials.SPOTIFY_SP_DC)
 
     @staticmethod
     def _generate_totp(server_time_s: int, secret: str) -> str:
@@ -133,14 +133,16 @@ class SpotifyAuthenticator(BaseAuthenticator):
         if db_token and time.time() < self._token_expires_at - 30:
             return db_token
 
-        if not SPOTIFY_SP_DC:
-            logger.error("Spotify: SPOTIFY_SP_DC env var not set — cannot authenticate")
+        if not credentials.SPOTIFY_SP_DC:
+            logger.error(
+                "Spotify: settings.SPOTIFY_SP_DC env var not set — cannot authenticate"
+            )
             return None
 
         headers = {
             "User-Agent": UA_BROWSER,
             "Accept": "*/*",
-            "Cookie": f"sp_dc={SPOTIFY_SP_DC}",
+            "Cookie": f"sp_dc={credentials.SPOTIFY_SP_DC}",
             **_SPOTIFY_BASE_HEADERS,
         }
 

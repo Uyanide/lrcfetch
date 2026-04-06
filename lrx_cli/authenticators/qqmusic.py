@@ -7,7 +7,7 @@ Description: QQ Music API authenticator - currently only a proxy
 from typing import Optional
 
 from .base import BaseAuthenticator
-from ..config import QQ_MUSIC_API_URL
+from ..config import credentials
 
 
 class QQMusicAuthenticator(BaseAuthenticator):
@@ -19,7 +19,7 @@ class QQMusicAuthenticator(BaseAuthenticator):
         return "qqmusic"
 
     def is_configured(self) -> bool:
-        return bool(QQ_MUSIC_API_URL)
+        return bool(credentials.QQ_MUSIC_API_URL)
 
     async def authenticate(self) -> Optional[str]:
-        return QQ_MUSIC_API_URL
+        return credentials.QQ_MUSIC_API_URL

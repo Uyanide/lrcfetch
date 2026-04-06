@@ -15,8 +15,8 @@ from ..cache import CacheEngine
 from ..config import (
     HTTP_TIMEOUT,
     MUSIXMATCH_TOKEN_URL,
-    MUSIXMATCH_USERTOKEN,
     MUSIXMATCH_COOLDOWN_MS,
+    credentials,
 )
 
 _MXM_HEADERS = {"Cookie": "x-mxm-token-guid="}
@@ -105,8 +105,8 @@ class MusixmatchAuthenticator(BaseAuthenticator):
 
     async def _get_token(self) -> Optional[str]:
         """Return a valid token: env var > memory > DB > fresh fetch."""
-        if MUSIXMATCH_USERTOKEN:
-            return MUSIXMATCH_USERTOKEN
+        if credentials.MUSIXMATCH_USERTOKEN:
+            return credentials.MUSIXMATCH_USERTOKEN
 
         if self._cached_token:
             return self._cached_token

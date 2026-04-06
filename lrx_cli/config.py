@@ -65,21 +65,20 @@ SPOTIFY_SECRET_URL = (
     "https://raw.githubusercontent.com/xyloflake/spot-secrets-go"
     "/refs/heads/main/secrets/secrets.json"
 )
-SPOTIFY_SP_DC = os.environ.get("SPOTIFY_SP_DC", "")
 
 # Netease api
 NETEASE_SEARCH_URL = "https://music.163.com/api/cloudsearch/pc"
 NETEASE_LYRIC_URL = "https://interface3.music.163.com/api/song/lyric"
 
+# QQ api endpoints
+QQ_MUSIC_API_SEARCH_ENDPOINT = "/api/search"
+QQ_MUSIC_API_LYRIC_ENDPOINT = "/api/lyric"
+
 # LRCLIB api
 LRCLIB_API_URL = "https://lrclib.net/api/get"
 LRCLIB_SEARCH_URL = "https://lrclib.net/api/search"
 
-# QQ Music API (self-hosted proxy)
-QQ_MUSIC_API_URL = os.environ.get("QQ_MUSIC_API_URL", "").rstrip("/")
-
 # Musixmatch desktop API
-MUSIXMATCH_USERTOKEN = os.environ.get("MUSIXMATCH_USERTOKEN", "")
 MUSIXMATCH_TOKEN_URL = "https://apic-desktop.musixmatch.com/ws/1.1/token.get"
 MUSIXMATCH_SEARCH_URL = "https://apic-desktop.musixmatch.com/ws/1.1/track.search"
 MUSIXMATCH_MACRO_URL = "https://apic-desktop.musixmatch.com/ws/1.1/macro.subtitles.get"
@@ -90,6 +89,30 @@ MUSIXMATCH_COOLDOWN_MS = 600_000  # 10 minutes
 
 # Player preference (used when multiple MPRIS players are active)
 PREFERRED_PLAYER = os.environ.get("PREFERRED_PLAYER", "spotify")
+
+
+class _Credentials:
+    """Credential config with lazy os.environ reads.
+
+    Stable constants live as module-level names above.
+    Credentials are @property so monkeypatch.setenv / monkeypatch.delenv
+    affect them without needing to patch each consumer separately.
+    """
+
+    @property
+    def SPOTIFY_SP_DC(self) -> str:
+        return os.environ.get("SPOTIFY_SP_DC", "")
+
+    @property
+    def QQ_MUSIC_API_URL(self) -> str:
+        return os.environ.get("QQ_MUSIC_API_URL", "").rstrip("/")
+
+    @property
+    def MUSIXMATCH_USERTOKEN(self) -> str:
+        return os.environ.get("MUSIXMATCH_USERTOKEN", "")
+
+
+credentials = _Credentials()
 
 # User-Agents
 UA_BROWSER = "Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0"

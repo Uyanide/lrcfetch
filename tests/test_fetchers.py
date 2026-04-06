@@ -5,6 +5,11 @@ from dataclasses import replace
 from lrx_cli.fetchers import FetcherMethodType
 from lrx_cli.models import TrackMeta
 from lrx_cli.core import LrcManager
+from tests.marks import (
+    requires_spotify,
+    requires_qq_music,
+    requires_musixmatch_token,
+)
 
 SAMPLE_SPOTIFY_TRACK: TrackMeta = TrackMeta(
     title="One Last Kiss",
@@ -94,13 +99,46 @@ def test_cache_search_fetcher_prefer_better_match(lrc_manager: LrcManager):
         ("lrclib", False),
         ("lrclib-search", False),
         ("netease", False),
+        ("spotify", True),  # requires auth
+        ("qqmusic", True),  # requires api
     ],
 )
 def test_anonymous_remote_fetchers(
-    lrc_manager: LrcManager, method: FetcherMethodType, expect_fail: bool
+    no_credentials,
+    lrc_manager: LrcManager,
+    method: FetcherMethodType,
+    expect_fail: bool,
 ):
     _fetch_and_assert(lrc_manager, method, expect_fail)
 
 
+@pytest.mark.network
+@requires_spotify
+def test_spotify_fetcher(lrc_manager: LrcManager):
+    _fetch_and_assert(lrc_manager, "spotify")
+
+
+@pytest.mark.network
+@requires_qq_music
+def test_qqmusic_fetcher(lrc_manager: LrcManager):
+    _fetch_and_assert(lrc_manager, "qqmusic")
+
+
+@pytest.mark.network
+def test_musixmatch_anonymous_fetcher(no_credentials, lrc_manager: LrcManager):
+    # These fetchers should be tested in a single test to share the same usertoken
+    # Otherwise the second may fail due to rate limits
+    _fetch_and_assert(lrc_manager, "musixmatch", expect_fail=False)
+    _fetch_and_assert(lrc_manager, "musixmatch-spotify", expect_fail=False)
+
+
+@pytest.mark.network
+@requires_musixmatch_token
+def test_musixmatch_fetcher(lrc_manager: LrcManager):
+    _fetch_and_assert(lrc_manager, "musixmatch")
+    _fetch_and_assert(lrc_manager, "musixmatch-spotify")
+
+
 def test_local_fetcher(lrc_manager: LrcManager):
+    # Since this not a local track
     _fetch_and_assert(lrc_manager, "local", True)
