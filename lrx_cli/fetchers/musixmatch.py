@@ -22,12 +22,12 @@ from .selection import SearchCandidate, select_best
 from ..authenticators.musixmatch import MusixmatchAuthenticator
 from ..lrc import LRCData
 from ..models import CacheStatus, LyricResult, TrackMeta
-from ..config import (
-    MUSIXMATCH_MACRO_URL,
-    MUSIXMATCH_SEARCH_URL,
-    TTL_NETWORK_ERROR,
-    TTL_NOT_FOUND,
+from ..config import TTL_NETWORK_ERROR, TTL_NOT_FOUND
+
+_MUSIXMATCH_MACRO_URL = (
+    "https://apic-desktop.musixmatch.com/ws/1.1/macro.subtitles.get"
 )
+_MUSIXMATCH_SEARCH_URL = "https://apic-desktop.musixmatch.com/ws/1.1/track.search"
 
 # Macro-specific params (format/app_id injected by authenticator)
 _MXM_MACRO_PARAMS = {
@@ -97,7 +97,7 @@ async def _fetch_macro(
     lyrics are found. Raises on HTTP/network errors.
     """
     logger.debug(f"Musixmatch: macro call with {list(params.keys())}")
-    data = await auth.get_json(MUSIXMATCH_MACRO_URL, {**_MXM_MACRO_PARAMS, **params})
+    data = await auth.get_json(_MUSIXMATCH_MACRO_URL, {**_MXM_MACRO_PARAMS, **params})
     if data is None:
         return None
 
@@ -220,7 +220,7 @@ class MusixmatchFetcher(BaseFetcher):
             params["q_album"] = track.album
 
         logger.debug(f"Musixmatch: searching for '{track.display_name()}'")
-        data = await self.auth.get_json(MUSIXMATCH_SEARCH_URL, params)
+        data = await self.auth.get_json(_MUSIXMATCH_SEARCH_URL, params)
         if data is None:
             return None, 0.0
 

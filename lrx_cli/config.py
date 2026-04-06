@@ -57,34 +57,10 @@ MULTI_CANDIDATE_DELAY_S = 0.2  # delay between sequential lyric fetches
 LEGACY_CONFIDENCE_SYNCED = 50.0
 LEGACY_CONFIDENCE_UNSYNCED = 40.0
 
-# Spotify related
-SPOTIFY_TOKEN_URL = "https://open.spotify.com/api/token"
-SPOTIFY_LYRICS_URL = "https://spclient.wg.spotify.com/color-lyrics/v2/track/"
-SPOTIFY_SERVER_TIME_URL = "https://open.spotify.com/api/server-time"
-SPOTIFY_SECRET_URL = (
-    "https://raw.githubusercontent.com/xyloflake/spot-secrets-go"
-    "/refs/heads/main/secrets/secrets.json"
-)
+# User-Agents
+UA_BROWSER = "Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0"
+UA_LRX = f"LRX-CLI {APP_VERSION} (https://github.com/Uyanide/lrx-cli)"
 
-# Netease api
-NETEASE_SEARCH_URL = "https://music.163.com/api/cloudsearch/pc"
-NETEASE_LYRIC_URL = "https://interface3.music.163.com/api/song/lyric"
-
-# QQ api endpoints
-QQ_MUSIC_API_SEARCH_ENDPOINT = "/api/search"
-QQ_MUSIC_API_LYRIC_ENDPOINT = "/api/lyric"
-
-# LRCLIB api
-LRCLIB_API_URL = "https://lrclib.net/api/get"
-LRCLIB_SEARCH_URL = "https://lrclib.net/api/search"
-
-# Musixmatch desktop API
-MUSIXMATCH_TOKEN_URL = "https://apic-desktop.musixmatch.com/ws/1.1/token.get"
-MUSIXMATCH_SEARCH_URL = "https://apic-desktop.musixmatch.com/ws/1.1/track.search"
-MUSIXMATCH_MACRO_URL = "https://apic-desktop.musixmatch.com/ws/1.1/macro.subtitles.get"
-MUSIXMATCH_TRACK_MATCH_URL = (
-    "https://apic-desktop.musixmatch.com/ws/1.1/matcher.track.get"
-)
 MUSIXMATCH_COOLDOWN_MS = 600_000  # 10 minutes
 
 # Player preference (used when multiple MPRIS players are active)
@@ -113,10 +89,6 @@ class _Credentials:
 
 
 credentials = _Credentials()
-
-# User-Agents
-UA_BROWSER = "Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0"
-UA_LRX = f"LRX-CLI {APP_VERSION} (https://github.com/Uyanide/lrx-cli)"
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 

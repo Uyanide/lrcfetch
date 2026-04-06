@@ -26,14 +26,15 @@ from ..config import (
     TTL_NOT_FOUND,
     TTL_NETWORK_ERROR,
     MULTI_CANDIDATE_DELAY_S,
-    NETEASE_SEARCH_URL,
-    NETEASE_LYRIC_URL,
     UA_BROWSER,
 )
 
-_HEADERS = {
+_NETEASE_SEARCH_URL = "https://music.163.com/api/cloudsearch/pc"
+_NETEASE_LYRIC_URL = "https://interface3.music.163.com/api/song/lyric"
+_NETEASE_BASE_HEADERS = {
     "User-Agent": UA_BROWSER,
     "Referer": "https://music.163.com/",
+    "Origin": "https://music.163.com",
 }
 
 
@@ -57,8 +58,8 @@ class NeteaseFetcher(BaseFetcher):
         try:
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
                 resp = await client.post(
-                    NETEASE_SEARCH_URL,
-                    headers=_HEADERS,
+                    _NETEASE_SEARCH_URL,
+                    headers=_NETEASE_BASE_HEADERS,
                     data={"s": query, "type": "1", "limit": str(limit), "offset": "0"},
                 )
                 resp.raise_for_status()
@@ -124,8 +125,8 @@ class NeteaseFetcher(BaseFetcher):
         try:
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
                 resp = await client.post(
-                    NETEASE_LYRIC_URL,
-                    headers=_HEADERS,
+                    _NETEASE_LYRIC_URL,
+                    headers=_NETEASE_BASE_HEADERS,
                     data={
                         "id": str(song_id),
                         "cp": "false",

@@ -9,23 +9,12 @@ from typing import Optional
 from loguru import logger
 
 from .base import BaseFetcher
-from ..authenticators.spotify import SpotifyAuthenticator
+from ..authenticators.spotify import SpotifyAuthenticator, SPOTIFY_BASE_HEADERS
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..lrc import LRCData
-from ..config import (
-    HTTP_TIMEOUT,
-    TTL_NOT_FOUND,
-    TTL_NETWORK_ERROR,
-    SPOTIFY_LYRICS_URL,
-    UA_BROWSER,
-)
+from ..config import HTTP_TIMEOUT, TTL_NOT_FOUND, TTL_NETWORK_ERROR
 
-_SPOTIFY_BASE_HEADERS = {
-    "Referer": "https://open.spotify.com/",
-    "Origin": "https://open.spotify.com",
-    "App-Platform": "WebPlayer",
-    "Spotify-App-Version": "1.2.88.21.g8e037c8f",
-}
+_SPOTIFY_LYRICS_URL = "https://spclient.wg.spotify.com/color-lyrics/v2/track/"
 
 
 class SpotifyFetcher(BaseFetcher):
@@ -71,12 +60,11 @@ class SpotifyFetcher(BaseFetcher):
             logger.error("Spotify: cannot fetch lyrics without a token")
             return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
 
-        url = f"{SPOTIFY_LYRICS_URL}{track.trackid}?format=json&vocalRemoval=false&market=from_token"
+        url = f"{_SPOTIFY_LYRICS_URL}{track.trackid}?format=json&vocalRemoval=false&market=from_token"
         headers = {
-            "User-Agent": UA_BROWSER,
             "Accept": "application/json",
             "Authorization": f"Bearer {token}",
-            **_SPOTIFY_BASE_HEADERS,
+            **SPOTIFY_BASE_HEADERS,
         }
 
         try:

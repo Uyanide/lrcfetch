@@ -21,9 +21,10 @@ from ..config import (
     TTL_UNSYNCED,
     TTL_NOT_FOUND,
     TTL_NETWORK_ERROR,
-    LRCLIB_API_URL,
     UA_LRX,
 )
+
+_LRCLIB_API_URL = "https://lrclib.net/api/get"
 
 
 class LrclibFetcher(BaseFetcher):
@@ -48,7 +49,7 @@ class LrclibFetcher(BaseFetcher):
             "album_name": track.album,
             "duration": track.length / 1000.0 if track.length else 0,
         }
-        url = f"{LRCLIB_API_URL}?{urlencode(params)}"
+        url = f"{_LRCLIB_API_URL}?{urlencode(params)}"
         logger.info(f"LRCLIB: fetching lyrics for {track.display_name()}")
 
         try:

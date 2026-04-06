@@ -24,9 +24,10 @@ from ..config import (
     TTL_UNSYNCED,
     TTL_NOT_FOUND,
     TTL_NETWORK_ERROR,
-    LRCLIB_SEARCH_URL,
     UA_LRX,
 )
+
+_LRCLIB_SEARCH_URL = "https://lrclib.net/api/search"
 
 
 class LrclibSearchFetcher(BaseFetcher):
@@ -83,7 +84,7 @@ class LrclibSearchFetcher(BaseFetcher):
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
 
                 async def _query(params: dict[str, str]) -> tuple[list[dict], bool]:
-                    url = f"{LRCLIB_SEARCH_URL}?{urlencode(params)}"
+                    url = f"{_LRCLIB_SEARCH_URL}?{urlencode(params)}"
                     logger.debug(f"LRCLIB-search: query {params}")
                     try:
                         resp = await client.get(url, headers={"User-Agent": UA_LRX})

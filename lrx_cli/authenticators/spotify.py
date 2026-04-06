@@ -14,16 +14,16 @@ from loguru import logger
 
 from .base import BaseAuthenticator
 from ..cache import CacheEngine
-from ..config import (
-    HTTP_TIMEOUT,
-    SPOTIFY_SERVER_TIME_URL,
-    SPOTIFY_SECRET_URL,
-    SPOTIFY_TOKEN_URL,
-    UA_BROWSER,
-    credentials,
-)
+from ..config import HTTP_TIMEOUT, UA_BROWSER, credentials
 
-_SPOTIFY_BASE_HEADERS = {
+_SPOTIFY_TOKEN_URL = "https://open.spotify.com/api/token"
+_SPOTIFY_SERVER_TIME_URL = "https://open.spotify.com/api/server-time"
+_SPOTIFY_SECRET_URL = (
+    "https://raw.githubusercontent.com/xyloflake/spot-secrets-go"
+    "/refs/heads/main/secrets/secrets.json"
+)
+SPOTIFY_BASE_HEADERS = {
+    "User-Agent": UA_BROWSER,
     "Referer": "https://open.spotify.com/",
     "Origin": "https://open.spotify.com",
     "App-Platform": "WebPlayer",
@@ -82,7 +82,7 @@ class SpotifyAuthenticator(BaseAuthenticator):
 
     async def _get_server_time(self, client: httpx.AsyncClient) -> Optional[int]:
         try:
-            res = await client.get(SPOTIFY_SERVER_TIME_URL, timeout=HTTP_TIMEOUT)
+            res = await client.get(_SPOTIFY_SERVER_TIME_URL, timeout=HTTP_TIMEOUT)
             res.raise_for_status()
             data = res.json()
             if not isinstance(data, dict) or "serverTime" not in data:
@@ -100,7 +100,7 @@ class SpotifyAuthenticator(BaseAuthenticator):
             logger.debug("Spotify: using cached TOTP secret")
             return self._cached_secret
         try:
-            res = await client.get(SPOTIFY_SECRET_URL, timeout=HTTP_TIMEOUT)
+            res = await client.get(_SPOTIFY_SECRET_URL, timeout=HTTP_TIMEOUT)
             res.raise_for_status()
             data = res.json()
             if not isinstance(data, list) or len(data) == 0:
@@ -140,10 +140,9 @@ class SpotifyAuthenticator(BaseAuthenticator):
             return None
 
         headers = {
-            "User-Agent": UA_BROWSER,
             "Accept": "*/*",
             "Cookie": f"sp_dc={credentials.SPOTIFY_SP_DC}",
-            **_SPOTIFY_BASE_HEADERS,
+            **SPOTIFY_BASE_HEADERS,
         }
 
         async with httpx.AsyncClient(headers=headers) as client:
@@ -169,7 +168,7 @@ class SpotifyAuthenticator(BaseAuthenticator):
 
             try:
                 res = await client.get(
-                    SPOTIFY_TOKEN_URL, params=params, timeout=HTTP_TIMEOUT
+                    _SPOTIFY_TOKEN_URL, params=params, timeout=HTTP_TIMEOUT
                 )
                 if res.status_code != 200:
                     logger.error(f"Spotify: token request returned {res.status_code}")

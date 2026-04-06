@@ -11,7 +11,10 @@ from loguru import logger
 from .base import BaseEnricher
 from ..authenticators.musixmatch import MusixmatchAuthenticator
 from ..models import TrackMeta
-from ..config import MUSIXMATCH_TRACK_MATCH_URL
+
+_MUSIXMATCH_TRACK_MATCH_URL = (
+    "https://apic-desktop.musixmatch.com/ws/1.1/matcher.track.get"
+)
 
 
 class MusixmatchSpotifyEnricher(BaseEnricher):
@@ -36,7 +39,7 @@ class MusixmatchSpotifyEnricher(BaseEnricher):
 
         try:
             data = await self.auth.get_json(
-                MUSIXMATCH_TRACK_MATCH_URL,
+                _MUSIXMATCH_TRACK_MATCH_URL,
                 {"track_spotify_id": track.trackid},
             )
         except Exception as e:

@@ -12,12 +12,9 @@ from loguru import logger
 
 from .base import BaseAuthenticator
 from ..cache import CacheEngine
-from ..config import (
-    HTTP_TIMEOUT,
-    MUSIXMATCH_TOKEN_URL,
-    MUSIXMATCH_COOLDOWN_MS,
-    credentials,
-)
+from ..config import HTTP_TIMEOUT, MUSIXMATCH_COOLDOWN_MS, credentials
+
+_MUSIXMATCH_TOKEN_URL = "https://apic-desktop.musixmatch.com/ws/1.1/token.get"
 
 _MXM_HEADERS = {"Cookie": "x-mxm-token-guid="}
 _MXM_BASE_PARAMS = {
@@ -61,7 +58,7 @@ class MusixmatchAuthenticator(BaseAuthenticator):
             {"until_ms": until_ms},
             expires_at_ms=until_ms,
         )
-        logger.warning("Musixmatch: token unavailable, entering cooldown for 1 hour")
+        logger.warning("Musixmatch: token unavailable, entering cooldown")
 
     def _invalidate_token(self) -> None:
         """Discard the current token from memory and DB."""
@@ -76,7 +73,7 @@ class MusixmatchAuthenticator(BaseAuthenticator):
             "user_language": "en",
             "t": str(int(time.time() * 1000)),
         }
-        url = f"{MUSIXMATCH_TOKEN_URL}?{urlencode(params)}"
+        url = f"{_MUSIXMATCH_TOKEN_URL}?{urlencode(params)}"
         logger.debug("Musixmatch: fetching anonymous token")
 
         try:

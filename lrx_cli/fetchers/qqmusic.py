@@ -25,9 +25,10 @@ from ..config import (
     TTL_NOT_FOUND,
     TTL_NETWORK_ERROR,
     MULTI_CANDIDATE_DELAY_S,
-    QQ_MUSIC_API_LYRIC_ENDPOINT,
-    QQ_MUSIC_API_SEARCH_ENDPOINT,
 )
+
+_QQ_MUSIC_API_SEARCH_ENDPOINT = "/api/search"
+_QQ_MUSIC_API_LYRIC_ENDPOINT = "/api/lyric"
 from ..authenticators import QQMusicAuthenticator
 
 
@@ -54,7 +55,7 @@ class QQMusicFetcher(BaseFetcher):
         try:
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
                 resp = await client.get(
-                    f"{await self.auth.authenticate()}{QQ_MUSIC_API_SEARCH_ENDPOINT}",
+                    f"{await self.auth.authenticate()}{_QQ_MUSIC_API_SEARCH_ENDPOINT}",
                     params={"keyword": query, "type": "song", "num": limit},
                 )
                 resp.raise_for_status()
@@ -113,7 +114,7 @@ class QQMusicFetcher(BaseFetcher):
         try:
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
                 resp = await client.get(
-                    f"{await self.auth.authenticate()}{QQ_MUSIC_API_LYRIC_ENDPOINT}",
+                    f"{await self.auth.authenticate()}{_QQ_MUSIC_API_LYRIC_ENDPOINT}",
                     params={"mid": mid},
                 )
                 resp.raise_for_status()
