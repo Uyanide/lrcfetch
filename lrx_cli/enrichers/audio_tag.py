@@ -1,7 +1,7 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-31 06:11:27
-Description: Enricher that reads metadata from audio file tags (mutagen)
+Description: Enricher that reads metadata from audio file tags.
 """
 
 from typing import Optional

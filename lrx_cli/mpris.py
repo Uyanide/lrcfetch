@@ -1,7 +1,7 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-25 04:44:15
-Description: MPRIS integration for fetching track metadata
+Description: MPRIS integration for fetching track metadata.
 """
 
 import asyncio

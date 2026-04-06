@@ -1,16 +1,14 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-04-04 15:28:34
-Description: Musixmatch fetchers (desktop API, usertoken auth)
-"""
+Description: Musixmatch fetchers (desktop API, anonymous or usertoken auth).
 
-"""
-Uses the Musixmatch desktop API (apic-desktop.musixmatch.com).
-Token and all HTTP calls are managed by MusixmatchAuthenticator.
+             Uses the Musixmatch desktop API (apic-desktop.musixmatch.com).
+             Token and all HTTP calls are managed by MusixmatchAuthenticator.
 
-Two fetchers:
-  musixmatch-spotify  — direct lookup by Spotify track ID (exact, no search)
-  musixmatch          — metadata search + best-candidate fallback
+             Two fetchers:
+             musixmatch-spotify  — direct lookup by Spotify track ID (exact, no search)
+             musixmatch          — metadata search + best-candidate fallback
 """
 
 import json
@@ -24,9 +22,7 @@ from ..lrc import LRCData
 from ..models import CacheStatus, LyricResult, TrackMeta
 from ..config import TTL_NETWORK_ERROR, TTL_NOT_FOUND
 
-_MUSIXMATCH_MACRO_URL = (
-    "https://apic-desktop.musixmatch.com/ws/1.1/macro.subtitles.get"
-)
+_MUSIXMATCH_MACRO_URL = "https://apic-desktop.musixmatch.com/ws/1.1/macro.subtitles.get"
 _MUSIXMATCH_SEARCH_URL = "https://apic-desktop.musixmatch.com/ws/1.1/track.search"
 
 # Macro-specific params (format/app_id injected by authenticator)

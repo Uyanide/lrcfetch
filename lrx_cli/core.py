@@ -1,7 +1,7 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-25 11:09:53
-Description: Core orchestrator — coordinates fetchers with cache-aware fallback
+Description: Core orchestrator — coordinates fetchers with cache-aware fallback.
 """
 
 import asyncio

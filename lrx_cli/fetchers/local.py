@@ -1,13 +1,10 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-26 02:08:41
-Description: Local fetcher — reads lyrics from .lrc sidecar files or embedded audio metadata
-"""
-
-"""
-Priority:
-  1. Same-directory .lrc file (e.g. /path/to/track.lrc)
-  2. Embedded lyrics in audio metadata (FLAC, MP3 USLT/SYLT tags)
+Description: Local fetcher — reads lyrics from .lrc sidecar files or embedded audio metadata.
+             Priority:
+               1. Same-directory .lrc file (e.g. /path/to/track.lrc)
+               2. Embedded lyrics in audio metadata (FLAC, MP3 USLT/SYLT tags)
 """
 
 from typing import Optional

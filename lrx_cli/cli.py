@@ -1,7 +1,7 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-26 02:04:39
-Description: CLI interface
+Description: CLI interface.
 """
 
 import sys

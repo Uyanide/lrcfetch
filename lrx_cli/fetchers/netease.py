@@ -1,15 +1,10 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-25 11:04:51
-Description: Netease Cloud Music fetcher
-"""
+Description: Netease Cloud Music fetcher.
 
-"""
-Uses the public cloudsearch API for searching and the song/lyric API for
-retrieving lyrics. No authentication required.
-
-Search results are filtered by duration when the track has a known length
-to avoid returning lyrics for the wrong version of a song.
+             Uses the public cloudsearch API for searching and the song/lyric API for
+             retrieving lyrics. No authentication required.
 """
 
 import asyncio

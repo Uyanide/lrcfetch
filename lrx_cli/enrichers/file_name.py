@@ -1,7 +1,7 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-31 06:08:44
-Description: Enricher that parses metadata from the audio file path
+Description: Enricher that parses metadata from the audio file path.
 """
 
 import re

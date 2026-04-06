@@ -1,7 +1,7 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-04-05 03:18:14
-Description: Base class for credential authenticators
+Description: Base class for credential authenticators.
 """
 
 from abc import ABC, abstractmethod

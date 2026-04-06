@@ -1,7 +1,7 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-25 02:33:26
-Description: Base fetcher class and common interfaces
+Description: Base fetcher class and common interfaces.
 """
 
 from abc import ABC, abstractmethod

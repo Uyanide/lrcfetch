@@ -1,7 +1,7 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-25 21:54:01
-Description: Shared LRC time-tag utilities (definitely overengineered)
+Description: Shared LRC time-tag utilities (definitely overengineered).
 """
 
 import re

@@ -1,7 +1,7 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-04-05 02:13:49
-Description: Musixmatch metadata enricher (matcher.track.get by Spotify track ID)
+Description: Musixmatch metadata enricher (matcher.track.get by Spotify track ID).
 """
 
 from typing import Optional

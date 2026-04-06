@@ -1,7 +1,7 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-04-05 03:27:56
-Description: Musixmatch authenticator — token management, 401 retry, and cooldown
+Description: Musixmatch authenticator — token management, 401 retry, and cooldown.
 """
 
 import time

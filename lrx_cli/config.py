@@ -1,7 +1,7 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-25 10:17:56
-Description: Global configuration constants and logger setup
+Description: Global configuration constants and logger setup.
 """
 
 import os

@@ -1,7 +1,7 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-25 10:18:03
-Description: SQLite-based lyric cache with per-source storage and TTL expiration
+Description: SQLite-based lyric cache with per-source storage and TTL expiration.
 """
 
 import json
@@ -79,7 +79,7 @@ class CacheEngine:
         self._init_db()
 
     def _init_db(self) -> None:
-        """Create or migrate the cache table."""
+        """Create or migrate the cache and credentials tables."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS cache (

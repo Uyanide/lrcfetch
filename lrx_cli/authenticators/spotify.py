@@ -1,7 +1,7 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-04-05 03:18:14
-Description: Spotify authenticator — TOTP-based access token via SP_DC cookie
+Description: Spotify authenticator — TOTP-based access token via SP_DC cookie.
 """
 
 import hashlib
@@ -134,9 +134,7 @@ class SpotifyAuthenticator(BaseAuthenticator):
             return db_token
 
         if not credentials.SPOTIFY_SP_DC:
-            logger.error(
-                "Spotify: settings.SPOTIFY_SP_DC env var not set — cannot authenticate"
-            )
+            logger.error("Spotify: SPOTIFY_SP_DC env var not set — cannot authenticate")
             return None
 
         headers = {

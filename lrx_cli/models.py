@@ -1,7 +1,7 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-25 04:09:36
-Description: Data models
+Description: Data models.
 """
 
 from __future__ import annotations

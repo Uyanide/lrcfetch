@@ -1,11 +1,8 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-25 05:23:38
-Description: LRCLIB fetcher — queries lrclib.net for synced/plain lyrics
-"""
-
-"""
-Requires complete track metadata (artist, title, album, duration).
+Description: LRCLIB fetcher — queries lrclib.net for synced/plain lyrics.
+             Requires complete track metadata (artist, title, album, duration).
 """
 
 from typing import Optional

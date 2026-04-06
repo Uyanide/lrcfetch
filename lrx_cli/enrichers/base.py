@@ -1,7 +1,7 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-31 06:08:16
-Description: Base class for metadata enrichers
+Description: Base class for metadata enrichers.
 """
 
 from abc import ABC, abstractmethod

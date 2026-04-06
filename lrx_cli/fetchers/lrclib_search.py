@@ -1,12 +1,8 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-25 05:30:50
-Description: LRCLIB search fetcher — fuzzy search via lrclib.net /api/search
-"""
-
-"""
-Used when metadata is incomplete (no album or duration) but title is available.
-Selects the best match by duration when track length is known.
+Description: LRCLIB search fetcher — fuzzy search via lrclib.net /api/search.
+             Used when metadata is incomplete (no album or duration) but title is available.
 """
 
 import asyncio

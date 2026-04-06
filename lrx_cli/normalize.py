@@ -1,7 +1,8 @@
 """
-Shared text normalization utilities for fuzzy matching.
-
-Used by cache key generation, cache search, and candidate selection scoring.
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-04-02 05:24:27
+Description: Shared text normalization utilities for fuzzy matching.
+             Used by cache key generation, cache search, and candidate selection scoring.
 """
 
 import re

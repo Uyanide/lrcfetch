@@ -1,9 +1,11 @@
 """
-Shared candidate-selection logic for search-based fetchers.
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-04-04 11:32:23
+Description: Shared candidate-selection logic for search-based fetchers.
 
-Each fetcher maps its API-specific results to SearchCandidate, then calls
-select_best() which scores candidates by metadata similarity, duration
-proximity, and sync status.
+             Each fetcher maps its API-specific results to SearchCandidate, then calls
+             select_best() which scores candidates by metadata similarity, duration
+             proximity, and sync status.
 """
 
 from dataclasses import dataclass

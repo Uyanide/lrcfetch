@@ -1,7 +1,7 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-25 02:33:26
-Description: Fetcher pipeline — registry and types
+Description: Fetcher pipeline — registry and types.
 """
 
 from typing import Literal, Optional

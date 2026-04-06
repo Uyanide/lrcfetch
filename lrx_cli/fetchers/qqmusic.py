@@ -1,14 +1,12 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-31 01:54:02
-Description: QQ Music fetcher via self-hosted API proxy
-"""
+Description: QQ Music fetcher via self-hosted API proxy.
 
-"""
-Requires a running qq-music-api instance.
-The base URL is read from the QQ_MUSIC_API_URL environment variable.
+             Requires a running qq-music-api instance.
+             The base URL is read from the QQ_MUSIC_API_URL environment variable.
 
-Search → pick best match by duration → fetch LRC lyrics.
+             Search → pick best match → fetch LRC lyrics.
 """
 
 import asyncio

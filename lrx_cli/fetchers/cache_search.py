@@ -1,13 +1,11 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-28 05:57:46
-Description: Cache-search fetcher — cross-album fuzzy lookup in the local cache
-"""
+Description: Cache-search fetcher — cross-album fuzzy lookup in the local cache.
 
-"""
-Searches existing cache entries by artist + title with fuzzy normalization,
-ignoring album and source. Useful when the same track appears on different
-albums or is played from different players.
+             Searches existing cache entries by artist + title with fuzzy normalization,
+             ignoring album and source. Useful when the same track appears on different
+             albums or is played from different players.
 """
 
 from typing import Optional
