@@ -10,7 +10,7 @@ from enum import Enum
 from typing import Optional, TYPE_CHECKING
 from dataclasses import dataclass
 
-from lrx_cli.config import SCORE_W_SYNCED
+from .config import SCORE_W_SYNCED
 
 if TYPE_CHECKING:
     from .lrc import LRCData
