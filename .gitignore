@@ -9,3 +9,7 @@ wheels/
 .*
 !.gitignore
 !.python-version
+
+TODO.md
+PENDING.md
+SOLVED.md

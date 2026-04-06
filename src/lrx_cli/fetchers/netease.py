@@ -8,18 +8,16 @@ Description: Netease Cloud Music fetcher.
 """
 
 import asyncio
-from typing import Optional
 import httpx
 from loguru import logger
 
-from .base import BaseFetcher
+from .base import BaseFetcher, FetchResult
 from .selection import SearchCandidate, select_ranked
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..lrc import LRCData
 from ..config import (
     HTTP_TIMEOUT,
     TTL_NOT_FOUND,
-    TTL_NETWORK_ERROR,
     MULTI_CANDIDATE_DELAY_S,
     UA_BROWSER,
 )
@@ -112,9 +110,7 @@ class NeteaseFetcher(BaseFetcher):
             logger.error(f"Netease: search failed: {e}")
             return []
 
-    async def _get_lyric(
-        self, song_id: int, confidence: float = 0.0
-    ) -> Optional[LyricResult]:
+    async def _get_lyric(self, song_id: int, confidence: float = 0.0) -> FetchResult:
         logger.debug(f"Netease: fetching lyrics for song_id={song_id}")
 
         try:
@@ -141,21 +137,19 @@ class NeteaseFetcher(BaseFetcher):
                 logger.error(
                     f"Netease: lyric response is not dict: {type(data).__name__}"
                 )
-                return LyricResult(
-                    status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR
-                )
+                return FetchResult.from_network_error()
 
             lrc_obj = data.get("lrc")
             if not isinstance(lrc_obj, dict):
                 logger.debug(
                     f"Netease: no 'lrc' object in response for song_id={song_id}"
                 )
-                return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+                return FetchResult.from_not_found()
 
             lrc: str = lrc_obj.get("lyric", "")
             if not isinstance(lrc, str) or not lrc.strip():
                 logger.debug(f"Netease: empty lyrics for song_id={song_id}")
-                return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+                return FetchResult.from_not_found()
 
             lrcdata = LRCData(lrc)
             status = lrcdata.detect_sync_status()
@@ -163,38 +157,78 @@ class NeteaseFetcher(BaseFetcher):
                 f"Netease: got {status.value} lyrics for song_id={song_id} "
                 f"({len(lrcdata)} lines)"
             )
-            return LyricResult(
-                status=status,
-                lyrics=lrcdata,
-                source=self.source_name,
-                confidence=confidence,
+            not_found = LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+            if status == CacheStatus.SUCCESS_SYNCED:
+                return FetchResult(
+                    synced=LyricResult(
+                        status=CacheStatus.SUCCESS_SYNCED,
+                        lyrics=lrcdata,
+                        source=self.source_name,
+                        confidence=confidence,
+                    ),
+                    unsynced=not_found,
+                )
+            return FetchResult(
+                synced=not_found,
+                unsynced=LyricResult(
+                    status=CacheStatus.SUCCESS_UNSYNCED,
+                    lyrics=lrcdata,
+                    source=self.source_name,
+                    confidence=confidence,
+                ),
             )
 
         except Exception as e:
             logger.error(f"Netease: lyric fetch failed for song_id={song_id}: {e}")
-            return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
+            return FetchResult.from_network_error()
 
-    async def fetch(
-        self, track: TrackMeta, bypass_cache: bool = False
-    ) -> Optional[LyricResult]:
+    async def fetch(self, track: TrackMeta, bypass_cache: bool = False) -> FetchResult:
         query = f"{track.artist or ''} {track.title or ''}".strip()
         if not query:
             logger.debug("Netease: skipped — insufficient metadata")
-            return None
+            return FetchResult()
 
         logger.info(f"Netease: fetching lyrics for {track.display_name()}")
         candidates = await self._search(track)
         if not candidates:
             logger.debug(f"Netease: no match found for {track.display_name()}")
-            return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+            return FetchResult.from_not_found()
+
+        res_synced: LyricResult = LyricResult(
+            status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND
+        )
+        res_unsynced: LyricResult = LyricResult(
+            status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND
+        )
 
         for i, (song_id, confidence) in enumerate(candidates):
             if i > 0:
                 await asyncio.sleep(MULTI_CANDIDATE_DELAY_S)
             result = await self._get_lyric(song_id, confidence=confidence)
-            if result is None or result.status == CacheStatus.NETWORK_ERROR:
+            if result.synced and result.synced.status == CacheStatus.NETWORK_ERROR:
                 return result
-            if result.status != CacheStatus.NOT_FOUND:
+            if result.unsynced and result.unsynced.status == CacheStatus.NETWORK_ERROR:
                 return result
 
-        return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+            if (
+                res_synced.status == CacheStatus.NOT_FOUND
+                and result.synced
+                and result.synced.status == CacheStatus.SUCCESS_SYNCED
+            ):
+                res_synced = result.synced
+            if (
+                res_unsynced.status == CacheStatus.NOT_FOUND
+                and result.unsynced
+                and result.unsynced.status == CacheStatus.SUCCESS_UNSYNCED
+            ):
+                res_unsynced = result.unsynced
+
+            # Netease API is quite expensive, so we stop after finding synced lyrics,
+            # instead of trying to find both synced and unsynced versions
+            if (
+                res_synced.status == CacheStatus.SUCCESS_SYNCED
+                # and res_unsynced.status == CacheStatus.SUCCESS_UNSYNCED
+            ):
+                break
+
+        return FetchResult(synced=res_synced, unsynced=res_unsynced)

@@ -37,9 +37,14 @@ def lrc_manager(tmp_path: Path) -> LrcManager:
 
 
 def _fetch_and_assert(
-    lrc_manager: LrcManager, method: FetcherMethodType, expect_fail: bool = False
+    lrc_manager: LrcManager,
+    method: FetcherMethodType,
+    expect_fail: bool = False,
+    bypass_cache: bool = True,
 ) -> None:
-    result = lrc_manager.fetch_for_track(SAMPLE_SPOTIFY_TRACK, force_method=method)
+    result = lrc_manager.fetch_for_track(
+        SAMPLE_SPOTIFY_TRACK, force_method=method, bypass_cache=bypass_cache
+    )
     if expect_fail:
         assert result is None
     else:
@@ -48,7 +53,7 @@ def _fetch_and_assert(
 
 
 def test_cache_search_fetcher_without_cache(lrc_manager: LrcManager):
-    _fetch_and_assert(lrc_manager, "cache-search", expect_fail=True)
+    _fetch_and_assert(lrc_manager, "cache-search", expect_fail=True, bypass_cache=False)
 
 
 @pytest.mark.parametrize(
@@ -68,7 +73,9 @@ def test_cache_search_fetcher_with_fuzzy_metadata(
     expected_lrc = "[00:00.01]lyrics"
     lrc_manager.manual_insert(SAMPLE_SPOTIFY_TRACK, expected_lrc)
 
-    result = lrc_manager.fetch_for_track(query_track, force_method="cache-search")
+    result = lrc_manager.fetch_for_track(
+        query_track, force_method="cache-search", bypass_cache=False
+    )
 
     assert result is not None
     assert result.lyrics is not None
@@ -84,7 +91,7 @@ def test_cache_search_fetcher_prefer_better_match(lrc_manager: LrcManager):
     )
 
     result = lrc_manager.fetch_for_track(
-        SAMPLE_SPOTIFY_TRACK, force_method="cache-search"
+        SAMPLE_SPOTIFY_TRACK, force_method="cache-search", bypass_cache=False
     )
 
     assert result is not None

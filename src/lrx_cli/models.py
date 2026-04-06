@@ -10,8 +10,6 @@ from enum import Enum
 from typing import Optional, TYPE_CHECKING
 from dataclasses import dataclass
 
-from .config import SCORE_W_SYNCED
-
 if TYPE_CHECKING:
     from .lrc import LRCData
 
@@ -69,6 +67,3 @@ class LyricResult:
     def __post_init__(self) -> None:
         if self.status in (CacheStatus.NOT_FOUND, CacheStatus.NETWORK_ERROR):
             self.confidence = 0.0
-        if self.status is CacheStatus.SUCCESS_UNSYNCED and self.confidence == 100.0:
-            # Fix: remove inflated confidence for unsynced results
-            self.confidence = 100 - SCORE_W_SYNCED

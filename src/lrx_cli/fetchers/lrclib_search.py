@@ -7,11 +7,10 @@ Description: LRCLIB search fetcher — fuzzy search via lrclib.net /api/search.
 
 import asyncio
 import httpx
-from typing import Optional
 from loguru import logger
 from urllib.parse import urlencode
 
-from .base import BaseFetcher
+from .base import BaseFetcher, FetchResult
 from .selection import SearchCandidate, select_best
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..lrc import LRCData
@@ -19,7 +18,6 @@ from ..config import (
     HTTP_TIMEOUT,
     TTL_UNSYNCED,
     TTL_NOT_FOUND,
-    TTL_NETWORK_ERROR,
     UA_LRX,
 )
 
@@ -62,12 +60,10 @@ class LrclibSearchFetcher(BaseFetcher):
 
         return queries
 
-    async def fetch(
-        self, track: TrackMeta, bypass_cache: bool = False
-    ) -> Optional[LyricResult]:
+    async def fetch(self, track: TrackMeta, bypass_cache: bool = False) -> FetchResult:
         if not track.title:
             logger.debug("LRCLIB-search: skipped — no title")
-            return None
+            return FetchResult()
 
         queries = self._build_queries(track)
         logger.info(f"LRCLIB-search: searching for {track.display_name()}")
@@ -110,11 +106,9 @@ class LrclibSearchFetcher(BaseFetcher):
 
             if not candidates:
                 if had_error:
-                    return LyricResult(
-                        status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR
-                    )
+                    return FetchResult.from_network_error()
                 logger.debug(f"LRCLIB-search: no results for {track.display_name()}")
-                return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+                return FetchResult.from_not_found()
 
             logger.debug(
                 f"LRCLIB-search: got {len(candidates)} unique candidates "
@@ -144,41 +138,48 @@ class LrclibSearchFetcher(BaseFetcher):
             )
             if best is None:
                 logger.debug("LRCLIB-search: no valid candidate found")
-                return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+                return FetchResult.from_not_found()
 
             synced = best.get("syncedLyrics")
             unsynced = best.get("plainLyrics")
+
+            res_synced: LyricResult = LyricResult(
+                status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND
+            )
+            res_unsynced: LyricResult = LyricResult(
+                status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND
+            )
 
             if isinstance(synced, str) and synced.strip():
                 lyrics = LRCData(synced)
                 logger.info(
                     f"LRCLIB-search: got synced lyrics ({len(lyrics)} lines, confidence={confidence:.0f})"
                 )
-                return LyricResult(
+                res_synced = LyricResult(
                     status=CacheStatus.SUCCESS_SYNCED,
                     lyrics=lyrics,
                     source=self.source_name,
                     confidence=confidence,
                 )
-            elif isinstance(unsynced, str) and unsynced.strip():
+
+            if isinstance(unsynced, str) and unsynced.strip():
                 lyrics = LRCData(unsynced)
                 logger.info(
                     f"LRCLIB-search: got unsynced lyrics ({len(lyrics)} lines, confidence={confidence:.0f})"
                 )
-                return LyricResult(
+                res_unsynced = LyricResult(
                     status=CacheStatus.SUCCESS_UNSYNCED,
                     lyrics=lyrics,
                     source=self.source_name,
                     ttl=TTL_UNSYNCED,
                     confidence=confidence,
                 )
-            else:
-                logger.debug("LRCLIB-search: best candidate has empty lyrics")
-                return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+
+            return FetchResult(synced=res_synced, unsynced=res_unsynced)
 
         except httpx.HTTPError as e:
             logger.error(f"LRCLIB-search: HTTP error: {e}")
-            return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
+            return FetchResult.from_network_error()
         except Exception as e:
             logger.error(f"LRCLIB-search: unexpected error: {e}")
-            return None
+            return FetchResult()

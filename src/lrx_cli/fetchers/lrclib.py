@@ -5,19 +5,17 @@ Description: LRCLIB fetcher — queries lrclib.net for synced/plain lyrics.
              Requires complete track metadata (artist, title, album, duration).
 """
 
-from typing import Optional
 import httpx
 from loguru import logger
 from urllib.parse import urlencode
 
-from .base import BaseFetcher
+from .base import BaseFetcher, FetchResult
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..lrc import LRCData
 from ..config import (
     HTTP_TIMEOUT,
     TTL_UNSYNCED,
     TTL_NOT_FOUND,
-    TTL_NETWORK_ERROR,
     UA_LRX,
 )
 
@@ -32,13 +30,11 @@ class LrclibFetcher(BaseFetcher):
     def is_available(self, track: TrackMeta) -> bool:
         return track.is_complete
 
-    async def fetch(
-        self, track: TrackMeta, bypass_cache: bool = False
-    ) -> Optional[LyricResult]:
+    async def fetch(self, track: TrackMeta, bypass_cache: bool = False) -> FetchResult:
         """Fetch lyrics from LRCLIB. Requires complete metadata."""
         if not track.is_complete:
             logger.debug("LRCLIB: skipped — incomplete metadata")
-            return None
+            return FetchResult()
 
         params = {
             "track_name": track.title,
@@ -55,48 +51,51 @@ class LrclibFetcher(BaseFetcher):
 
             if resp.status_code == 404:
                 logger.debug(f"LRCLIB: not found for {track.display_name()}")
-                return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+                return FetchResult.from_not_found()
 
             if resp.status_code != 200:
                 logger.error(f"LRCLIB: API returned {resp.status_code}")
-                return LyricResult(
-                    status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR
-                )
+                return FetchResult.from_network_error()
 
             data = resp.json()
             if not isinstance(data, dict):
                 logger.error(f"LRCLIB: unexpected response type: {type(data).__name__}")
-                return LyricResult(
-                    status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR
-                )
+                return FetchResult.from_network_error()
 
             synced = data.get("syncedLyrics")
             unsynced = data.get("plainLyrics")
 
+            res_synced: LyricResult = LyricResult(
+                status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND
+            )
+            res_unsynced: LyricResult = LyricResult(
+                status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND
+            )
+
             if isinstance(synced, str) and synced.strip():
                 lyrics = LRCData(synced)
                 logger.info(f"LRCLIB: got synced lyrics ({len(lyrics)} lines)")
-                return LyricResult(
+                res_synced = LyricResult(
                     status=CacheStatus.SUCCESS_SYNCED,
                     lyrics=lyrics,
                     source=self.source_name,
                 )
-            elif isinstance(unsynced, str) and unsynced.strip():
+
+            if isinstance(unsynced, str) and unsynced.strip():
                 lyrics = LRCData(unsynced)
                 logger.info(f"LRCLIB: got unsynced lyrics ({len(lyrics)} lines)")
-                return LyricResult(
+                res_unsynced = LyricResult(
                     status=CacheStatus.SUCCESS_UNSYNCED,
                     lyrics=lyrics,
                     source=self.source_name,
                     ttl=TTL_UNSYNCED,
                 )
-            else:
-                logger.debug(f"LRCLIB: empty response for {track.display_name()}")
-                return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+
+            return FetchResult(synced=res_synced, unsynced=res_unsynced)
 
         except httpx.HTTPError as e:
             logger.error(f"LRCLIB: HTTP error: {e}")
-            return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
+            return FetchResult.from_network_error()
         except Exception as e:
             logger.error(f"LRCLIB: unexpected error: {e}")
-            return None
+            return FetchResult()

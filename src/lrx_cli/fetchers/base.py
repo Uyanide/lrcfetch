@@ -6,8 +6,35 @@ Description: Base fetcher class and common interfaces.
 
 from abc import ABC, abstractmethod
 from typing import Optional
+from dataclasses import dataclass
 
-from ..models import TrackMeta, LyricResult
+from ..models import CacheStatus, TrackMeta, LyricResult
+
+
+@dataclass(frozen=True, slots=True)
+class FetchResult:
+    synced: Optional[LyricResult] = None
+    unsynced: Optional[LyricResult] = None
+
+    @staticmethod
+    def from_not_found() -> "FetchResult":
+        return FetchResult(
+            synced=LyricResult(status=CacheStatus.NOT_FOUND, lyrics=None, source=None),
+            unsynced=LyricResult(
+                status=CacheStatus.NOT_FOUND, lyrics=None, source=None
+            ),
+        )
+
+    @staticmethod
+    def from_network_error() -> "FetchResult":
+        return FetchResult(
+            synced=LyricResult(
+                status=CacheStatus.NETWORK_ERROR, lyrics=None, source=None
+            ),
+            unsynced=LyricResult(
+                status=CacheStatus.NETWORK_ERROR, lyrics=None, source=None
+            ),
+        )
 
 
 class BaseFetcher(ABC):
@@ -28,8 +55,6 @@ class BaseFetcher(ABC):
         pass
 
     @abstractmethod
-    async def fetch(
-        self, track: TrackMeta, bypass_cache: bool = False
-    ) -> Optional[LyricResult]:
+    async def fetch(self, track: TrackMeta, bypass_cache: bool = False) -> FetchResult:
         """Fetch lyrics for the given track. Returns None if unable to fetch."""
         pass

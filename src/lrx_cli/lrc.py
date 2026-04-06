@@ -271,6 +271,9 @@ class LRCData:
 
         return "\n".join(sorted_lines).strip()
 
+    def to_unsynced(self):
+        return LRCData(self.to_plain())
+
     def to_lrc(
         self,
         plain: bool = False,
@@ -279,9 +282,12 @@ class LRCData:
 
         Assumes text has been normalized by normalize.
         """
+        ret = self
+        if not self.is_synced():
+            ret = self.normalize_unsynced()
         if plain:
-            return self.to_plain()
-        return "\n".join(self._lines)
+            return ret.to_plain()
+        return "\n".join(ret._lines)
 
 
 def get_audio_path(audio_url: str, ensure_exists: bool = False) -> Optional[Path]:

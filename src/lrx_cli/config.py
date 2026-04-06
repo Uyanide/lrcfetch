@@ -44,9 +44,10 @@ SCORE_W_ARTIST = 30.0
 SCORE_W_ALBUM = 10.0
 SCORE_W_DURATION = 10.0
 SCORE_W_SYNCED = 10.0
+CONFIDENCE_ALGO_VERSION = 1
 
 # Confidence thresholds
-MIN_CONFIDENCE = 25.0  # below this, candidate is rejected
+MIN_CONFIDENCE = 40.0  # below this, candidate is rejected
 HIGH_CONFIDENCE = 80.0  # at or above this, stop searching early
 
 # Multi-candidate fetching
@@ -54,8 +55,7 @@ MULTI_CANDIDATE_LIMIT = 3  # max candidates to try per search-based fetcher
 MULTI_CANDIDATE_DELAY_S = 0.2  # delay between sequential lyric fetches
 
 # Legacy cache rows (no confidence stored) get a base score by sync status
-LEGACY_CONFIDENCE_SYNCED = 50.0
-LEGACY_CONFIDENCE_UNSYNCED = 40.0
+LEGACY_CONFIDENCE = 50.0
 
 # User-Agents
 UA_BROWSER = "Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0"

@@ -10,18 +10,16 @@ Description: QQ Music fetcher via self-hosted API proxy.
 """
 
 import asyncio
-from typing import Optional
 import httpx
 from loguru import logger
 
-from .base import BaseFetcher
+from .base import BaseFetcher, FetchResult
 from .selection import SearchCandidate, select_ranked
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..lrc import LRCData
 from ..config import (
     HTTP_TIMEOUT,
     TTL_NOT_FOUND,
-    TTL_NETWORK_ERROR,
     MULTI_CANDIDATE_DELAY_S,
 )
 
@@ -104,9 +102,7 @@ class QQMusicFetcher(BaseFetcher):
             logger.error(f"QQMusic: search failed: {e}")
             return []
 
-    async def _get_lyric(
-        self, mid: str, confidence: float = 0.0
-    ) -> Optional[LyricResult]:
+    async def _get_lyric(self, mid: str, confidence: float = 0.0) -> FetchResult:
         logger.debug(f"QQMusic: fetching lyrics for mid={mid}")
 
         try:
@@ -120,56 +116,94 @@ class QQMusicFetcher(BaseFetcher):
 
             if data.get("code") != 0:
                 logger.error(f"QQMusic: lyric API error: {data}")
-                return LyricResult(
-                    status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR
-                )
+                return FetchResult.from_network_error()
 
             lrc = data.get("data", {}).get("lyric", "")
             if not isinstance(lrc, str) or not lrc.strip():
                 logger.debug(f"QQMusic: empty lyrics for mid={mid}")
-                return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+                return FetchResult.from_not_found()
 
             lrcdata = LRCData(lrc)
             status = lrcdata.detect_sync_status()
             logger.info(
                 f"QQMusic: got {status.value} lyrics for mid={mid} ({len(lrcdata)} lines)"
             )
-            return LyricResult(
-                status=status,
-                lyrics=lrcdata,
-                source=self.source_name,
-                confidence=confidence,
+            not_found = LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+            if status == CacheStatus.SUCCESS_SYNCED:
+                return FetchResult(
+                    synced=LyricResult(
+                        status=CacheStatus.SUCCESS_SYNCED,
+                        lyrics=lrcdata,
+                        source=self.source_name,
+                        confidence=confidence,
+                    ),
+                    unsynced=not_found,
+                )
+            return FetchResult(
+                synced=not_found,
+                unsynced=LyricResult(
+                    status=CacheStatus.SUCCESS_UNSYNCED,
+                    lyrics=lrcdata,
+                    source=self.source_name,
+                    confidence=confidence,
+                ),
             )
 
         except Exception as e:
             logger.error(f"QQMusic: lyric fetch failed for mid={mid}: {e}")
-            return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
+            return FetchResult.from_network_error()
 
-    async def fetch(
-        self, track: TrackMeta, bypass_cache: bool = False
-    ) -> Optional[LyricResult]:
+    async def fetch(self, track: TrackMeta, bypass_cache: bool = False) -> FetchResult:
         if not self.auth.is_configured():
             logger.debug("QQMusic: skipped — Auth not configured")
-            return None
+            return FetchResult()
 
         query = f"{track.artist or ''} {track.title or ''}".strip()
         if not query:
             logger.debug("QQMusic: skipped — insufficient metadata")
-            return None
+            return FetchResult()
 
         logger.info(f"QQMusic: fetching lyrics for {track.display_name()}")
         candidates = await self._search(track)
         if not candidates:
             logger.debug(f"QQMusic: no match found for {track.display_name()}")
-            return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+            return FetchResult.from_not_found()
+
+        res_synced: LyricResult = LyricResult(
+            status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND
+        )
+        res_unsynced: LyricResult = LyricResult(
+            status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND
+        )
 
         for i, (mid, confidence) in enumerate(candidates):
             if i > 0:
                 await asyncio.sleep(MULTI_CANDIDATE_DELAY_S)
             result = await self._get_lyric(mid, confidence=confidence)
-            if result is None or result.status == CacheStatus.NETWORK_ERROR:
+            if result.synced and result.synced.status == CacheStatus.NETWORK_ERROR:
                 return result
-            if result.status != CacheStatus.NOT_FOUND:
+            if result.unsynced and result.unsynced.status == CacheStatus.NETWORK_ERROR:
                 return result
 
-        return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+            if (
+                res_synced.status == CacheStatus.NOT_FOUND
+                and result.synced
+                and result.synced.status == CacheStatus.SUCCESS_SYNCED
+            ):
+                res_synced = result.synced
+            if (
+                res_unsynced.status == CacheStatus.NOT_FOUND
+                and result.unsynced
+                and result.unsynced.status == CacheStatus.SUCCESS_UNSYNCED
+            ):
+                res_unsynced = result.unsynced
+
+            # QQMusic API is quite expensive, so we stop after finding synced lyrics,
+            # instead of trying to find both synced and unsynced versions
+            if (
+                res_synced.status == CacheStatus.SUCCESS_SYNCED
+                # and res_unsynced.status == CacheStatus.SUCCESS_UNSYNCED
+            ):
+                break
+
+        return FetchResult(synced=res_synced, unsynced=res_unsynced)

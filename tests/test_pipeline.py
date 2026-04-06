@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from unittest.mock import patch
+import pytest
 
 from lrx_cli.config import HIGH_CONFIDENCE
 from lrx_cli.core import LrcManager
-from lrx_cli.fetchers.base import BaseFetcher
+from lrx_cli.fetchers.base import BaseFetcher, FetchResult
 from lrx_cli.lrc import LRCData
 from lrx_cli.models import CacheStatus, LyricResult, TrackMeta
 
@@ -41,8 +42,15 @@ def _not_found() -> LyricResult:
     return LyricResult(status=CacheStatus.NOT_FOUND)
 
 
+def _fr(
+    synced: LyricResult | None = None,
+    unsynced: LyricResult | None = None,
+) -> FetchResult:
+    return FetchResult(synced=synced, unsynced=unsynced)
+
+
 class MockFetcher(BaseFetcher):
-    def __init__(self, name: str, result: LyricResult | None, delay: float = 0.0):
+    def __init__(self, name: str, result: FetchResult, delay: float = 0.0):
         self._name = name
         self._result = result
         self._delay = delay
@@ -56,9 +64,7 @@ class MockFetcher(BaseFetcher):
     def is_available(self, track: TrackMeta) -> bool:
         return True
 
-    async def fetch(
-        self, track: TrackMeta, bypass_cache: bool = False
-    ) -> LyricResult | None:
+    async def fetch(self, track: TrackMeta, bypass_cache: bool = False) -> FetchResult:
         self.called = True
         try:
             if self._delay:
@@ -78,8 +84,8 @@ def make_manager(tmp_path) -> LrcManager:
 
 def test_unsynced_does_not_stop_next_group(tmp_path):
     """Unsynced result should not stop the pipeline — next group must still run."""
-    a = MockFetcher("a", _unsynced("a"))
-    b = MockFetcher("b", _synced("b"))
+    a = MockFetcher("a", _fr(unsynced=_unsynced("a")))
+    b = MockFetcher("b", _fr(synced=_synced("b")))
     manager = make_manager(tmp_path)
     with patch("lrx_cli.core.build_plan", return_value=[[a], [b]]):
         result = manager.fetch_for_track(_track())
@@ -90,8 +96,8 @@ def test_unsynced_does_not_stop_next_group(tmp_path):
 
 def test_trusted_synced_stops_next_group(tmp_path):
     """Trusted synced from group1 must prevent group2 from running."""
-    a = MockFetcher("a", _synced("a"))
-    b = MockFetcher("b", _synced("b"))
+    a = MockFetcher("a", _fr(synced=_synced("a")))
+    b = MockFetcher("b", _fr(synced=_synced("b")))
     manager = make_manager(tmp_path)
     with patch("lrx_cli.core.build_plan", return_value=[[a], [b]]):
         result = manager.fetch_for_track(_track())
@@ -102,8 +108,8 @@ def test_trusted_synced_stops_next_group(tmp_path):
 
 def test_negative_continues_next_group(tmp_path):
     """NOT_FOUND from group1 must cause group2 to be tried."""
-    a = MockFetcher("a", _not_found())
-    b = MockFetcher("b", _synced("b"))
+    a = MockFetcher("a", _fr(synced=_not_found(), unsynced=_not_found()))
+    b = MockFetcher("b", _fr(synced=_synced("b")))
     manager = make_manager(tmp_path)
     with patch("lrx_cli.core.build_plan", return_value=[[a], [b]]):
         result = manager.fetch_for_track(_track())
@@ -119,8 +125,8 @@ def test_negative_continues_next_group(tmp_path):
 def test_trusted_synced_cancels_sibling(tmp_path):
     """When a fast fetcher returns trusted synced, the slow sibling must be cancelled.
     If cancellation is broken this test will block for 10 seconds."""
-    fast = MockFetcher("fast", _synced("fast"))
-    slow = MockFetcher("slow", _synced("slow"), delay=10.0)
+    fast = MockFetcher("fast", _fr(synced=_synced("fast")))
+    slow = MockFetcher("slow", _fr(synced=_synced("slow")), delay=10.0)
     manager = make_manager(tmp_path)
     with patch("lrx_cli.core.build_plan", return_value=[[fast, slow]]):
         result = manager.fetch_for_track(_track())
@@ -132,14 +138,48 @@ def test_trusted_synced_cancels_sibling(tmp_path):
 
 
 def test_best_confidence_within_group(tmp_path):
-    """When no trusted synced result, highest-confidence result from group is returned."""
-    low = MockFetcher("low", _unsynced("low", confidence=40.0))
-    high = MockFetcher("high", _unsynced("high", confidence=70.0))
+    """When allow_unsynced=True and no trusted synced result, highest-confidence unsynced is returned."""
+    low = MockFetcher("low", _fr(unsynced=_unsynced("low", confidence=40.0)))
+    high = MockFetcher("high", _fr(unsynced=_unsynced("high", confidence=70.0)))
     manager = make_manager(tmp_path)
     with patch("lrx_cli.core.build_plan", return_value=[[low, high]]):
-        result = manager.fetch_for_track(_track())
+        result = manager.fetch_for_track(_track(), allow_unsynced=True)
     assert result is not None
     assert result.source == "high"
+
+
+def test_unsynced_only_returns_none_when_not_allowed(tmp_path):
+    """When allow_unsynced=False, unsynced-only pipeline result must be rejected."""
+    only_unsynced = MockFetcher(
+        "u",
+        _fr(unsynced=_unsynced("u", confidence=95.0)),
+    )
+    manager = make_manager(tmp_path)
+    with patch("lrx_cli.core.build_plan", return_value=[[only_unsynced]]):
+        result = manager.fetch_for_track(_track(), allow_unsynced=False)
+    assert result is None
+
+
+def test_allow_unsynced_flag_controls_return_type(tmp_path):
+    """With both slots available, allow_unsynced controls whether unsynced can be returned."""
+    dual = MockFetcher(
+        "dual",
+        _fr(
+            synced=_synced("dual", confidence=55.0),
+            unsynced=_unsynced("dual", confidence=95.0),
+        ),
+    )
+    manager = make_manager(tmp_path)
+
+    with patch("lrx_cli.core.build_plan", return_value=[[dual]]):
+        synced_only = manager.fetch_for_track(_track(), allow_unsynced=False)
+    assert synced_only is not None
+    assert synced_only.status == CacheStatus.SUCCESS_SYNCED
+
+    with patch("lrx_cli.core.build_plan", return_value=[[dual]]):
+        allow_unsynced = manager.fetch_for_track(_track(), allow_unsynced=True)
+    assert allow_unsynced is not None
+    assert allow_unsynced.status == CacheStatus.SUCCESS_UNSYNCED
 
 
 # Cache interaction
@@ -147,7 +187,7 @@ def test_best_confidence_within_group(tmp_path):
 
 def test_cache_negative_skips_fetch(tmp_path):
     """A cached NOT_FOUND entry must prevent the fetcher from being called."""
-    fetcher = MockFetcher("src", _synced("src"))
+    fetcher = MockFetcher("src", _fr(synced=_synced("src")))
     manager = make_manager(tmp_path)
     track = _track()
     manager.cache.set(track, "src", _not_found(), ttl_seconds=3600)
@@ -159,12 +199,36 @@ def test_cache_negative_skips_fetch(tmp_path):
 
 def test_cache_trusted_synced_no_fetch(tmp_path):
     """A trusted synced cache hit must be returned without calling the fetcher."""
-    fetcher = MockFetcher("src", None)
+    fetcher = MockFetcher("src", _fr())
     manager = make_manager(tmp_path)
     track = _track()
     manager.cache.set(track, "src", _synced("src"), ttl_seconds=3600)
     with patch("lrx_cli.core.build_plan", return_value=[[fetcher]]):
         result = manager.fetch_for_track(track)
     assert not fetcher.called
+    assert result is not None
+    assert result.status == CacheStatus.SUCCESS_SYNCED
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Known limitation: cached unsynced currently blocks live fetch, "
+        "so allow_unsynced=False may return None instead of fresh synced"
+    ),
+)
+def test_xfail_cached_unsynced_should_not_block_live_synced_when_unsynced_disallowed(
+    tmp_path,
+):
+    """Known gap: cached unsynced prevents re-fetch, so this expected behavior is xfailed."""
+    fetcher = MockFetcher("src", _fr(synced=_synced("src", confidence=90.0)))
+    manager = make_manager(tmp_path)
+    track = _track()
+    manager.cache.set(track, "src", _unsynced("src", confidence=85.0), ttl_seconds=3600)
+
+    with patch("lrx_cli.core.build_plan", return_value=[[fetcher]]):
+        result = manager.fetch_for_track(track, allow_unsynced=False)
+
+    assert fetcher.called
     assert result is not None
     assert result.status == CacheStatus.SUCCESS_SYNCED

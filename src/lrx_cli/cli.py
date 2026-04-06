@@ -14,7 +14,7 @@ import cyclopts
 from loguru import logger
 
 from .config import DB_PATH, enable_debug
-from .models import TrackMeta, CacheStatus
+from .models import TrackMeta
 from .mpris import get_current_track
 from .core import LrcManager
 from .fetchers import FetcherMethodType
@@ -88,10 +88,12 @@ def fetch(
             name="--no-cache", negative="", help="Bypass the cache for this request."
         ),
     ] = False,
-    only_synced: Annotated[
+    allow_unsynced: Annotated[
         bool,
         cyclopts.Parameter(
-            name="--only-synced", negative="", help="Only accept synced (timed) lyrics."
+            name="--allow-unsynced",
+            negative="",
+            help="Allow unsynced lyrics (will be displayed with all time tags set to [00:00.00]).",
         ),
     ] = False,
     plain: Annotated[
@@ -110,14 +112,15 @@ def fetch(
 
     logger.info(f"Track: {track.display_name()}")
 
-    result = manager.fetch_for_track(track, force_method=method, bypass_cache=no_cache)
+    result = manager.fetch_for_track(
+        track,
+        force_method=method,
+        bypass_cache=no_cache,
+        allow_unsynced=allow_unsynced,
+    )
 
     if not result or not result.lyrics:
         logger.error("No lyrics found.")
-        sys.exit(1)
-
-    if only_synced and result.status != CacheStatus.SUCCESS_SYNCED:
-        logger.error("Only unsynced lyrics available (--only-synced requested).")
         sys.exit(1)
 
     print(result.lyrics.to_lrc(plain=plain))
@@ -165,10 +168,12 @@ def search(
             name="--no-cache", negative="", help="Bypass the cache for this request."
         ),
     ] = False,
-    only_synced: Annotated[
+    allow_unsynced: Annotated[
         bool,
         cyclopts.Parameter(
-            name="--only-synced", negative="", help="Only accept synced (timed) lyrics."
+            name="--allow-unsynced",
+            negative="",
+            help="Allow unsynced lyrics (will be displayed with all time tags set to [00:00.00]).",
         ),
     ] = False,
     plain: Annotated[
@@ -198,14 +203,15 @@ def search(
 
     logger.info(f"Track: {track.display_name()}")
 
-    result = manager.fetch_for_track(track, force_method=method, bypass_cache=no_cache)
+    result = manager.fetch_for_track(
+        track,
+        force_method=method,
+        bypass_cache=no_cache,
+        allow_unsynced=allow_unsynced,
+    )
 
     if not result or not result.lyrics:
         logger.error("No lyrics found.")
-        sys.exit(1)
-
-    if only_synced and result.status != CacheStatus.SUCCESS_SYNCED:
-        logger.error("Only unsynced lyrics available (--only-synced requested).")
         sys.exit(1)
 
     print(result.lyrics.to_lrc(plain=plain))
@@ -236,6 +242,14 @@ def export(
             name=["--overwrite", "-f"], negative="", help="Overwrite existing file."
         ),
     ] = False,
+    allow_unsynced: Annotated[
+        bool,
+        cyclopts.Parameter(
+            name="--allow-unsynced",
+            negative="",
+            help="Allow unsynced lyrics (will be exported with all time tags set to [00:00.00] if --plain is not present).",
+        ),
+    ] = False,
     plain: Annotated[
         bool,
         cyclopts.Parameter(
@@ -249,7 +263,12 @@ def export(
         logger.error("No active playing track found.")
         sys.exit(1)
 
-    result = manager.fetch_for_track(track, force_method=method, bypass_cache=no_cache)
+    result = manager.fetch_for_track(
+        track,
+        force_method=method,
+        bypass_cache=no_cache,
+        allow_unsynced=allow_unsynced,
+    )
     if not result or not result.lyrics:
         logger.error("No lyrics available to export.")
         sys.exit(1)

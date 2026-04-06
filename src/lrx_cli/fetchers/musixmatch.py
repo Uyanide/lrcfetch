@@ -15,12 +15,11 @@ import json
 from typing import Optional
 from loguru import logger
 
-from .base import BaseFetcher
+from .base import BaseFetcher, FetchResult
 from .selection import SearchCandidate, select_best
 from ..authenticators.musixmatch import MusixmatchAuthenticator
 from ..lrc import LRCData
 from ..models import CacheStatus, LyricResult, TrackMeta
-from ..config import TTL_NETWORK_ERROR, TTL_NOT_FOUND
 
 _MUSIXMATCH_MACRO_URL = "https://apic-desktop.musixmatch.com/ws/1.1/macro.subtitles.get"
 _MUSIXMATCH_SEARCH_URL = "https://apic-desktop.musixmatch.com/ws/1.1/track.search"
@@ -156,9 +155,7 @@ class MusixmatchSpotifyFetcher(BaseFetcher):
     def is_available(self, track: TrackMeta) -> bool:
         return bool(track.trackid) and not self.auth.is_cooldown()
 
-    async def fetch(
-        self, track: TrackMeta, bypass_cache: bool = False
-    ) -> Optional[LyricResult]:
+    async def fetch(self, track: TrackMeta, bypass_cache: bool = False) -> FetchResult:
         logger.info(f"Musixmatch-Spotify: fetching lyrics for {track.display_name()}")
 
         try:
@@ -167,22 +164,27 @@ class MusixmatchSpotifyFetcher(BaseFetcher):
                 {"track_spotify_id": track.trackid},  # type: ignore[dict-item]
             )
         except AttributeError:
-            return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+            return FetchResult.from_not_found()
         except Exception as e:
             logger.error(f"Musixmatch-Spotify: fetch failed: {e}")
-            return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
+            return FetchResult.from_network_error()
 
         if lrc is None:
             logger.debug(
                 f"Musixmatch-Spotify: no lyrics found for {track.display_name()}"
             )
-            return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+            return FetchResult.from_not_found()
 
         logger.info(f"Musixmatch-Spotify: got SUCCESS_SYNCED lyrics ({len(lrc)} lines)")
-        return LyricResult(
-            status=CacheStatus.SUCCESS_SYNCED,
-            lyrics=lrc,
-            source=self.source_name,
+        return FetchResult(
+            synced=LyricResult(
+                status=CacheStatus.SUCCESS_SYNCED,
+                lyrics=lrc,
+                source=self.source_name,
+            ),
+            # Fetching unsynced lyrics is not possible with current endpoint,
+            # so no need to cache NOT_FOUND to avoid repeated failed attempts
+            unsynced=None,
         )
 
 
@@ -258,38 +260,40 @@ class MusixmatchFetcher(BaseFetcher):
             logger.debug("Musixmatch: no suitable candidate found")
         return best_id, confidence
 
-    async def fetch(
-        self, track: TrackMeta, bypass_cache: bool = False
-    ) -> Optional[LyricResult]:
+    async def fetch(self, track: TrackMeta, bypass_cache: bool = False) -> FetchResult:
         logger.info(f"Musixmatch: fetching lyrics for {track.display_name()}")
 
         try:
             commontrack_id, confidence = await self._search(track)
             if commontrack_id is None:
                 logger.debug(f"Musixmatch: no match found for {track.display_name()}")
-                return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+                return FetchResult.from_not_found()
 
             lrc = await _fetch_macro(
                 self.auth,
                 {"commontrack_id": str(commontrack_id)},
             )
         except AttributeError:
-            return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+            return FetchResult.from_not_found()
         except Exception as e:
             logger.error(f"Musixmatch: fetch failed: {e}")
-            return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
+            return FetchResult.from_network_error()
 
         if lrc is None:
             logger.debug(f"Musixmatch: no lyrics for commontrack_id={commontrack_id}")
-            return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+            return FetchResult.from_not_found()
 
         logger.info(
             f"Musixmatch: got SUCCESS_SYNCED lyrics "
             f"for commontrack_id={commontrack_id} ({len(lrc)} lines)"
         )
-        return LyricResult(
-            status=CacheStatus.SUCCESS_SYNCED,
-            lyrics=lrc,
-            source=self.source_name,
-            confidence=confidence,
+        return FetchResult(
+            synced=LyricResult(
+                status=CacheStatus.SUCCESS_SYNCED,
+                lyrics=lrc,
+                source=self.source_name,
+                confidence=confidence,
+            ),
+            # Same as above
+            unsynced=None,
         )

@@ -70,14 +70,12 @@ def _score_candidate(
 
     Scoring works in two tiers:
 
-    1. **Metadata score** — computed from fields available on *both* sides,
-       then rescaled to fill the 0-90 range so that missing fields don't
-       inflate the score.  Fields missing on both sides are simply excluded
-       from the calculation (neutral).  Fields present on only one side
-       contribute 0 to the numerator but their weight still counts in the
-       denominator (penalty for asymmetric absence).
-
-    2. **Synced bonus** — a flat 10 pts, always applied independently.
+    Metadata score — computed from fields available on both sides,
+    then rescaled to fill the 0-90 range so that missing fields don't
+    inflate the score.  Fields missing on both sides are simply excluded
+    from the calculation (neutral).  Fields present on only one side
+    contribute 0 to the numerator but their weight still counts in the
+    denominator (penalty for asymmetric absence).
 
     Field weights (before rescaling):
       - Title:    40
@@ -141,7 +139,10 @@ def _score_candidate(
         metadata_score = 0.0
 
     # Synced bonus (always 10 pts, independent of metadata)
-    synced_score = _W_SYNCED if c.is_synced else 0.0
+    # synced_score = _W_SYNCED if c.is_synced else 0.0
+    # EDIT: synced or not should not affect the score that indicates metadata similarity.
+    #       Always apply synced bonus regardless of is_synced.
+    synced_score = _W_SYNCED
 
     return metadata_score + synced_score
 

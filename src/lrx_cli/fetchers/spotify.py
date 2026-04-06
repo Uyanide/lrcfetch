@@ -5,14 +5,13 @@ Description: Spotify fetcher — obtains synced lyrics via Spotify's internal co
 """
 
 import httpx
-from typing import Optional
 from loguru import logger
 
-from .base import BaseFetcher
+from .base import BaseFetcher, FetchResult
 from ..authenticators.spotify import SpotifyAuthenticator, SPOTIFY_BASE_HEADERS
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..lrc import LRCData
-from ..config import HTTP_TIMEOUT, TTL_NOT_FOUND, TTL_NETWORK_ERROR
+from ..config import HTTP_TIMEOUT, TTL_NOT_FOUND
 
 _SPOTIFY_LYRICS_URL = "https://spclient.wg.spotify.com/color-lyrics/v2/track/"
 
@@ -46,19 +45,17 @@ class SpotifyFetcher(BaseFetcher):
                 continue
         return False
 
-    async def fetch(
-        self, track: TrackMeta, bypass_cache: bool = False
-    ) -> Optional[LyricResult]:
+    async def fetch(self, track: TrackMeta, bypass_cache: bool = False) -> FetchResult:
         if not track.trackid:
             logger.debug("Spotify: skipped — no trackid in metadata")
-            return None
+            return FetchResult()
 
         logger.info(f"Spotify: fetching lyrics for trackid={track.trackid}")
 
         token = await self.auth.authenticate()
         if not token:
             logger.error("Spotify: cannot fetch lyrics without a token")
-            return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
+            return FetchResult.from_network_error()
 
         url = f"{_SPOTIFY_LYRICS_URL}{track.trackid}?format=json&vocalRemoval=false&market=from_token"
         headers = {
@@ -73,21 +70,17 @@ class SpotifyFetcher(BaseFetcher):
 
                 if res.status_code == 404:
                     logger.debug(f"Spotify: 404 for trackid={track.trackid}")
-                    return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+                    return FetchResult.from_not_found()
 
                 if res.status_code != 200:
                     logger.error(f"Spotify: lyrics API returned {res.status_code}")
-                    return LyricResult(
-                        status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR
-                    )
+                    return FetchResult.from_network_error()
 
                 data = res.json()
 
             if not isinstance(data, dict) or "lyrics" not in data:
                 logger.error("Spotify: unexpected lyrics response structure")
-                return LyricResult(
-                    status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR
-                )
+                return FetchResult.from_network_error()
 
             lyrics_data = data["lyrics"]
             sync_type = lyrics_data.get("syncType", "")
@@ -95,7 +88,7 @@ class SpotifyFetcher(BaseFetcher):
 
             if not isinstance(lines, list) or len(lines) == 0:
                 logger.debug("Spotify: response contained no lyric lines")
-                return LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+                return FetchResult.from_not_found()
 
             is_synced = sync_type == "LINE_SYNCED" and self._is_truly_synced(lines)
 
@@ -122,8 +115,25 @@ class SpotifyFetcher(BaseFetcher):
             )
 
             logger.info(f"Spotify: got {status.value} lyrics ({len(lrc_lines)} lines)")
-            return LyricResult(status=status, lyrics=content, source=self.source_name)
+            not_found = LyricResult(status=CacheStatus.NOT_FOUND, ttl=TTL_NOT_FOUND)
+            if is_synced:
+                return FetchResult(
+                    synced=LyricResult(
+                        status=CacheStatus.SUCCESS_SYNCED,
+                        lyrics=content,
+                        source=self.source_name,
+                    ),
+                    unsynced=not_found,
+                )
+            return FetchResult(
+                synced=not_found,
+                unsynced=LyricResult(
+                    status=CacheStatus.SUCCESS_UNSYNCED,
+                    lyrics=content,
+                    source=self.source_name,
+                ),
+            )
 
         except Exception as e:
             logger.error(f"Spotify: lyrics fetch failed: {e}")
-            return LyricResult(status=CacheStatus.NETWORK_ERROR, ttl=TTL_NETWORK_ERROR)
+            return FetchResult.from_network_error()

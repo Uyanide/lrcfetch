@@ -66,6 +66,63 @@ def test_generate_key_raises_when_metadata_missing() -> None:
         )
 
 
+def test_migrate_adds_confidence_version_and_boosts_unsynced(tmp_path: Path) -> None:
+    """Legacy cache without confidence_version is migrated in-place.
+
+    Expected behavior:
+    - add confidence_version column
+    - boost SUCCESS_UNSYNCED confidence by +10 with cap at 100
+    - keep SUCCESS_SYNCED confidence unchanged
+    """
+    db_path = tmp_path / "legacy-cache.db"
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE cache (
+                key TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                status TEXT NOT NULL,
+                lyrics TEXT,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER,
+                artist TEXT,
+                title TEXT,
+                album TEXT,
+                length INTEGER,
+                confidence REAL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO cache
+                (key, source, status, lyrics, created_at, expires_at, artist, title, album, length, confidence)
+            VALUES
+                ('u1', 's1', 'SUCCESS_UNSYNCED', 'u1', 1, NULL, 'A', 'T', 'AL', 180000, 85.0),
+                ('u2', 's2', 'SUCCESS_UNSYNCED', 'u2', 1, NULL, 'A', 'T', 'AL', 180000, 98.0),
+                ('s1', 's3', 'SUCCESS_SYNCED', 's1', 1, NULL, 'A', 'T', 'AL', 180000, 70.0)
+            """
+        )
+        conn.commit()
+
+    CacheEngine(str(db_path))
+
+    with sqlite3.connect(db_path) as conn:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(cache)").fetchall()}
+        rows = conn.execute(
+            "SELECT key, status, confidence, confidence_version FROM cache ORDER BY key"
+        ).fetchall()
+
+    assert "confidence_version" in cols
+    by_key = {
+        k: (status, confidence, version) for k, status, confidence, version in rows
+    }
+    assert by_key["u1"] == ("SUCCESS_UNSYNCED", 95.0, 1)
+    assert by_key["u2"] == ("SUCCESS_UNSYNCED", 100.0, 1)
+    assert by_key["s1"] == ("SUCCESS_SYNCED", 70.0, 1)
+
+
 def test_set_and_get_roundtrip_with_ttl(
     monkeypatch: pytest.MonkeyPatch, cache_db: CacheEngine
 ) -> None:
@@ -218,13 +275,33 @@ def test_find_best_positive_uses_exact_match_and_prefers_synced(
     cache_db.set(track, "s1", _result(CacheStatus.SUCCESS_UNSYNCED, "u", "s1"))
     cache_db.set(track, "s2", _result(CacheStatus.SUCCESS_SYNCED, "s", "s2"))
 
-    best = cache_db.find_best_positive(track)
+    best = cache_db.find_best_positive(track, CacheStatus.SUCCESS_SYNCED)
 
     assert best is not None
     assert best.status is CacheStatus.SUCCESS_SYNCED
     assert str(best.lyrics) == "s"
     # find_best_positive always reports cache-search source
     assert best.source == "cache-search"
+
+
+def test_find_best_positive_returns_status_specific_results(
+    cache_db: CacheEngine,
+) -> None:
+    track = _track(artist="Artist", title="Song", album="Album")
+    cache_db.set(track, "u-high", _result(CacheStatus.SUCCESS_UNSYNCED, "u", "u-high"))
+    cache_db.set(track, "s-low", _result(CacheStatus.SUCCESS_SYNCED, "s", "s-low"))
+    cache_db.update_confidence(track, 95.0, "u-high")
+    cache_db.update_confidence(track, 70.0, "s-low")
+
+    best_synced = cache_db.find_best_positive(track, CacheStatus.SUCCESS_SYNCED)
+    assert best_synced is not None
+    assert best_synced.status is CacheStatus.SUCCESS_SYNCED
+    assert str(best_synced.lyrics) == "s"
+
+    best_unsynced = cache_db.find_best_positive(track, CacheStatus.SUCCESS_UNSYNCED)
+    assert best_unsynced is not None
+    assert best_unsynced.status is CacheStatus.SUCCESS_UNSYNCED
+    assert str(best_unsynced.lyrics) == "u"
 
 
 def test_search_by_meta_fuzzy_rules_and_duration_sorting(cache_db: CacheEngine) -> None:
@@ -296,6 +373,7 @@ def test_search_by_meta_fuzzy_rules_and_duration_sorting(cache_db: CacheEngine) 
     sources = [r["source"] for r in rows]
     assert "negative" not in sources
     assert "far-len" not in sources
+    assert "close-unsynced" in sources
     # Sorted by duration diff, then confidence for equal diff.
     assert sources[0] == "seed"
     assert sources[1] == "close-synced"
@@ -314,7 +392,7 @@ def test_update_confidence_targets_specific_source(cache_db: CacheEngine) -> Non
     assert updated == 1
     rows = {r["source"]: r for r in cache_db.query_track(track)}
     assert rows["s1"]["confidence"] == 75.0
-    assert rows["s2"]["confidence"] == 90.0  # unchanged (unsynced default)
+    assert rows["s2"]["confidence"] == 100.0  # unchanged default
 
 
 def test_update_confidence_returns_zero_for_missing_source(

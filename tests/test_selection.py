@@ -75,13 +75,13 @@ def test_score_missing_one_side_gives_zero_for_field() -> None:
 
 
 def test_score_synced_bonus() -> None:
-    """Synced adds 10 points."""
+    """Synced state does not affect metadata score anymore."""
     base = SearchCandidate(item="x", title="My Love", is_synced=False)
     synced = SearchCandidate(item="x", title="My Love", is_synced=True)
     diff = _score_candidate(synced, "My Love", None, None, None) - _score_candidate(
         base, "My Love", None, None, None
     )
-    assert diff == 10.0
+    assert diff == 0.0
 
 
 def test_score_duration_linear_decay() -> None:
@@ -95,11 +95,11 @@ def test_score_duration_linear_decay() -> None:
     at_tol = SearchCandidate(item="x", duration_ms=232000.0 + 3000.0)
     score_edge = _score_candidate(at_tol, None, None, None, 232000)
 
-    # Only duration is comparable → rescaled to fill 0-90
-    # exact=90, half=45, edge=0
-    assert score_exact == 90.0
-    assert score_half == 45.0
-    assert score_edge == 0.0
+    # Only duration is comparable → metadata spans 0-90, plus a constant baseline +10
+    # exact=100, half=55, edge=10
+    assert score_exact == 100.0
+    assert score_half == 55.0
+    assert score_edge == 10.0
 
 
 def test_duration_hard_filter_rejects_all_mismatched() -> None:

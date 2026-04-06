@@ -1,7 +1,8 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-25 10:18:03
-Description: SQLite-based lyric cache with per-source storage and TTL expiration.
+Description: SQLite-based lyric cache with per-source storage, TTL expiration,
+             and lightweight schema migrations (including confidence versioning).
 """
 
 import json
@@ -13,11 +14,7 @@ from loguru import logger
 
 from .lrc import LRCData
 from .normalize import normalize_for_match as _normalize_for_match
-from .config import (
-    DURATION_TOLERANCE_MS,
-    LEGACY_CONFIDENCE_SYNCED,
-    LEGACY_CONFIDENCE_UNSYNCED,
-)
+from .config import DURATION_TOLERANCE_MS, LEGACY_CONFIDENCE, CONFIDENCE_ALGO_VERSION
 from .models import TrackMeta, LyricResult, CacheStatus
 
 
@@ -79,7 +76,14 @@ class CacheEngine:
         self._init_db()
 
     def _init_db(self) -> None:
-        """Create or migrate the cache and credentials tables."""
+        """Create or migrate cache schema and credentials table.
+
+        Migration notes:
+        - Add structural columns introduced after initial releases.
+        - When introducing confidence versioning, rebalance legacy unsynced
+          confidence (+10, capped at 100) and stamp migrated rows with the
+          current algorithm version.
+        """
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS cache (
@@ -91,7 +95,10 @@ class CacheEngine:
                     expires_at INTEGER,
                     artist TEXT,
                     title TEXT,
-                    album TEXT
+                    album TEXT,
+                    length INTEGER,
+                    confidence REAL,
+                    confidence_version INTEGER
                 )
             """)
             conn.execute("""
@@ -101,12 +108,28 @@ class CacheEngine:
                     expires_at INTEGER
                 )
             """)
-            # Migrations
+            # Incremental, idempotent migrations for existing databases.
             cols = {r[1] for r in conn.execute("PRAGMA table_info(cache)").fetchall()}
             if "length" not in cols:
                 conn.execute("ALTER TABLE cache ADD COLUMN length INTEGER")
             if "confidence" not in cols:
                 conn.execute("ALTER TABLE cache ADD COLUMN confidence REAL")
+            if "confidence_version" not in cols:
+                conn.execute("ALTER TABLE cache ADD COLUMN confidence_version INTEGER")
+                # First-time confidence-version migration: boost unsynced rows
+                # from older scoring assumptions while preserving upper bound.
+                conn.execute(
+                    """
+                    UPDATE cache
+                    SET confidence = MIN(100.0, COALESCE(confidence, ?) + 10.0)
+                    WHERE status = ?
+                    """,
+                    (LEGACY_CONFIDENCE, CacheStatus.SUCCESS_UNSYNCED.value),
+                )
+                conn.execute(
+                    "UPDATE cache SET confidence_version = ? WHERE confidence_version IS NULL",
+                    (CONFIDENCE_ALGO_VERSION,),
+                )
             conn.commit()
 
     # Read
@@ -155,10 +178,8 @@ class CacheEngine:
             )
             status = CacheStatus(status_str)
             if confidence is None:
-                if status == CacheStatus.SUCCESS_SYNCED:
-                    confidence = LEGACY_CONFIDENCE_SYNCED
-                elif status == CacheStatus.SUCCESS_UNSYNCED:
-                    confidence = LEGACY_CONFIDENCE_UNSYNCED
+                if status in (CacheStatus.SUCCESS_SYNCED, CacheStatus.SUCCESS_UNSYNCED):
+                    confidence = LEGACY_CONFIDENCE
                 else:
                     confidence = 0.0  # negative statuses: no confidence
 
@@ -207,7 +228,11 @@ class CacheEngine:
         result: LyricResult,
         ttl_seconds: Optional[int] = None,
     ) -> None:
-        """Store a lyric result in the cache."""
+        """Store a lyric result in the cache.
+
+        New/updated rows are tagged with the current confidence algorithm
+        version so future migrations can be applied deterministically.
+        """
         try:
             key = _generate_key(track, source)
         except ValueError:
@@ -221,8 +246,8 @@ class CacheEngine:
             conn.execute(
                 """INSERT OR REPLACE INTO cache
                    (key, source, status, lyrics, created_at, expires_at,
-                    artist, title, album, length, confidence)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                          artist, title, album, length, confidence, confidence_version)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     key,
                     source,
@@ -235,6 +260,7 @@ class CacheEngine:
                     track.album,
                     track.length,
                     result.confidence,
+                    CONFIDENCE_ALGO_VERSION,
                 ),
             )
             conn.commit()
@@ -288,7 +314,9 @@ class CacheEngine:
 
     # Exact cross-source search
 
-    def find_best_positive(self, track: TrackMeta) -> Optional[LyricResult]:
+    def find_best_positive(
+        self, track: TrackMeta, status: CacheStatus
+    ) -> Optional[LyricResult]:
         """Find the best positive (synced/unsynced) cache entry for *track*.
 
         Uses exact metadata match (artist + title + album) across all sources.
@@ -303,21 +331,16 @@ class CacheEngine:
             rows = conn.execute(
                 f"SELECT status, lyrics, source, confidence FROM cache"
                 f" WHERE {_TRACK_WHERE}"
-                "   AND status IN (?, ?)"
+                "   AND status = ?"
                 "   AND (expires_at IS NULL OR expires_at > ?)"
-                " ORDER BY COALESCE(confidence,"
-                "   CASE status WHEN ? THEN ? ELSE ? END"
-                " ) DESC,"
+                " ORDER BY COALESCE(confidence, ?) DESC,"
                 " CASE status WHEN ? THEN 0 ELSE 1 END,"
-                " created_at DESC LIMIT 1",
+                " created_at DESC",
                 _track_where_params(track)
                 + [
-                    CacheStatus.SUCCESS_SYNCED.value,
-                    CacheStatus.SUCCESS_UNSYNCED.value,
+                    status.value,
                     now,
-                    CacheStatus.SUCCESS_SYNCED.value,
-                    LEGACY_CONFIDENCE_SYNCED,
-                    LEGACY_CONFIDENCE_UNSYNCED,
+                    LEGACY_CONFIDENCE,
                     CacheStatus.SUCCESS_SYNCED.value,
                 ],
             ).fetchall()
@@ -328,11 +351,7 @@ class CacheEngine:
         row = dict(rows[0])
         confidence = row["confidence"]
         if confidence is None:
-            confidence = (
-                LEGACY_CONFIDENCE_SYNCED
-                if row["status"] == CacheStatus.SUCCESS_SYNCED.value
-                else LEGACY_CONFIDENCE_UNSYNCED
-            )
+            confidence = LEGACY_CONFIDENCE
         return LyricResult(
             status=CacheStatus(row["status"]),
             lyrics=LRCData(row["lyrics"]) if row["lyrics"] else None,

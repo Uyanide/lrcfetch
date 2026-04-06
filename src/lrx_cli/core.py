@@ -10,7 +10,7 @@ from typing import Optional
 from loguru import logger
 
 from .fetchers import FetcherMethodType, build_plan, create_fetchers
-from .fetchers.base import BaseFetcher
+from .fetchers.base import BaseFetcher, FetchResult
 from .authenticators import create_authenticators
 from .cache import CacheEngine
 from .lrc import LRCData
@@ -34,28 +34,91 @@ _STATUS_TTL: dict[CacheStatus, Optional[int]] = {
 }
 
 
-def _is_better(new: LyricResult, old: LyricResult) -> bool:
-    """Compare two results: higher confidence wins; synced breaks ties."""
+def _is_better(new: LyricResult, old: LyricResult, allow_unsynced: bool) -> bool:
+    """Compare two results: higher confidence wins; if equal, synced > unsynced.
+    If allow_unsynced is False, treat unsynced as strictly worse than any synced."""
+
+    # If new is negative, it's definitely not better
+    if new.status not in (CacheStatus.SUCCESS_SYNCED, CacheStatus.SUCCESS_UNSYNCED):
+        return False
+    # If old is negative, the result is better or equal regardless of other factors
+    if old.status not in (CacheStatus.SUCCESS_SYNCED, CacheStatus.SUCCESS_UNSYNCED):
+        return True
+    # If unsynced results are not allowed, treat them as strictly worse than any synced result
+    if not allow_unsynced:
+        if (
+            new.status == CacheStatus.SUCCESS_UNSYNCED
+            and old.status == CacheStatus.SUCCESS_SYNCED
+        ):
+            return False
+        if (
+            old.status == CacheStatus.SUCCESS_UNSYNCED
+            and new.status == CacheStatus.SUCCESS_SYNCED
+        ):
+            return True
+    # Compare confidence
     if new.confidence != old.confidence:
         return new.confidence > old.confidence
     # Equal confidence — prefer synced as tiebreaker
+    # Will return false if unsynced results are not allowed
     return (
         new.status == CacheStatus.SUCCESS_SYNCED
         and old.status != CacheStatus.SUCCESS_SYNCED
     )
 
 
-def _normalize_result(result: LyricResult) -> LyricResult:
-    """Normalize unsynced lyrics before returning."""
-    if result.status == CacheStatus.SUCCESS_UNSYNCED and result.lyrics:
-        return LyricResult(
-            status=result.status,
-            lyrics=result.lyrics.normalize_unsynced(),
-            source=result.source,
-            ttl=result.ttl,
-            confidence=result.confidence,
-        )
-    return result
+def _pick_for_return(
+    result: FetchResult,
+    allow_unsynced: bool,
+) -> Optional[LyricResult]:
+    """Pick which lyric result should participate in final selection."""
+    candidates: list[LyricResult] = []
+    if result.synced and result.synced.status == CacheStatus.SUCCESS_SYNCED:
+        candidates.append(result.synced)
+    if (
+        allow_unsynced
+        and result.unsynced
+        and result.unsynced.status == CacheStatus.SUCCESS_UNSYNCED
+    ):
+        candidates.append(result.unsynced)
+
+    if not candidates:
+        return None
+
+    best = candidates[0]
+    for c in candidates[1:]:
+        if _is_better(c, best, allow_unsynced=True):
+            best = c
+    return best
+
+
+def _pick_for_cache(result: FetchResult) -> Optional[LyricResult]:
+    """Pick a single cacheable result from FetchResult for legacy one-slot cache schema."""
+    slots = [r for r in (result.synced, result.unsynced) if r is not None]
+    if not slots:
+        return None
+
+    positives = [
+        r
+        for r in slots
+        if r.status in (CacheStatus.SUCCESS_SYNCED, CacheStatus.SUCCESS_UNSYNCED)
+    ]
+    if positives:
+        best = positives[0]
+        for p in positives[1:]:
+            if _is_better(p, best, allow_unsynced=True):
+                best = p
+        return best
+
+    # If there is no positive result, prefer caching NETWORK_ERROR over NOT_FOUND
+    # to avoid long false-negative TTL when error signals disagree between slots.
+    for r in slots:
+        if r.status == CacheStatus.NETWORK_ERROR:
+            return r
+    for r in slots:
+        if r.status == CacheStatus.NOT_FOUND:
+            return r
+    return None
 
 
 class LrcManager:
@@ -72,6 +135,7 @@ class LrcManager:
         group: list[BaseFetcher],
         track: TrackMeta,
         bypass_cache: bool,
+        allow_unsynced: bool,
     ) -> list[tuple[str, LyricResult]]:
         """Run one group: cache-check first, then parallel-fetch uncached. Returns (source, result) pairs."""
         cached_results: list[tuple[str, LyricResult]] = []
@@ -129,25 +193,30 @@ class LrcManager:
                         logger.debug(f"[{source}] returned None")
                         continue
 
-                    if not fetcher.self_cached and not bypass_cache:
-                        ttl = result.ttl or _STATUS_TTL.get(
-                            result.status, TTL_NOT_FOUND
-                        )
-                        self.cache.set(track, source, result, ttl_seconds=ttl)
-
-                    if result.status in (
-                        CacheStatus.SUCCESS_SYNCED,
-                        CacheStatus.SUCCESS_UNSYNCED,
-                    ):
-                        logger.info(
-                            f"[{source}] got {result.status.value} lyrics"
-                            f" (confidence={result.confidence:.0f})"
-                        )
-                    cached_results.append((source, result))
+                    cache_result = _pick_for_cache(result)
+                    return_result = _pick_for_return(result, allow_unsynced)
 
                     if (
-                        result.status == CacheStatus.SUCCESS_SYNCED
-                        and result.confidence >= HIGH_CONFIDENCE
+                        cache_result is not None
+                        and not fetcher.self_cached
+                        and not bypass_cache
+                    ):
+                        ttl = cache_result.ttl or _STATUS_TTL.get(
+                            cache_result.status, TTL_NOT_FOUND
+                        )
+                        self.cache.set(track, source, cache_result, ttl_seconds=ttl)
+
+                    if return_result is not None:
+                        logger.info(
+                            f"[{source}] got {return_result.status.value} lyrics"
+                            f" (confidence={return_result.confidence:.0f})"
+                        )
+                        cached_results.append((source, return_result))
+
+                    if (
+                        return_result is not None
+                        and return_result.status == CacheStatus.SUCCESS_SYNCED
+                        and return_result.confidence >= HIGH_CONFIDENCE
                     ):
                         found_trusted = True
 
@@ -164,6 +233,7 @@ class LrcManager:
         track: TrackMeta,
         force_method: Optional[FetcherMethodType],
         bypass_cache: bool,
+        allow_unsynced: bool,
     ) -> Optional[LyricResult]:
         track = await enrich_track(track, self.enrichers)
         logger.info(f"Fetching lyrics for: {track.display_name()}")
@@ -175,7 +245,12 @@ class LrcManager:
         best_result: Optional[LyricResult] = None
 
         for group in plan:
-            group_results = await self._run_group(group, track, bypass_cache)
+            group_results = await self._run_group(
+                group,
+                track,
+                bypass_cache,
+                allow_unsynced,
+            )
 
             for source, result in group_results:
                 if result.status not in (
@@ -192,16 +267,26 @@ class LrcManager:
                         f"Returning {result.status.value} lyrics from {source}"
                         f" (confidence={result.confidence:.0f})"
                     )
-                    return _normalize_result(result)
+                    return result
 
-                if best_result is None or _is_better(result, best_result):
+                if best_result is None or _is_better(
+                    result, best_result, allow_unsynced
+                ):
                     best_result = result
 
         if best_result:
+            if (
+                best_result.status == CacheStatus.SUCCESS_UNSYNCED
+                and not allow_unsynced
+            ):
+                logger.info(
+                    f"Unsynced lyrics found from {best_result.source}, but unsynced results are not allowed"
+                )
+                return None
             logger.info(
                 f"Returning {best_result.status.value} lyrics from {best_result.source}"
             )
-            return _normalize_result(best_result)
+            return best_result
 
         logger.info(f"No lyrics found for {track.display_name()}")
         return None
@@ -211,9 +296,17 @@ class LrcManager:
         track: TrackMeta,
         force_method: Optional[FetcherMethodType] = None,
         bypass_cache: bool = False,
+        allow_unsynced: bool = False,
     ) -> Optional[LyricResult]:
         """Fetch lyrics for *track* using the group-based parallel pipeline."""
-        return asyncio.run(self._fetch_for_track(track, force_method, bypass_cache))
+        return asyncio.run(
+            self._fetch_for_track(
+                track,
+                force_method,
+                bypass_cache,
+                allow_unsynced,
+            )
+        )
 
     def manual_insert(
         self,
