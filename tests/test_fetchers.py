@@ -49,6 +49,7 @@ def _fetch_and_assert(
         assert result is None
     else:
         assert result is not None
+        assert result.status == "SUCCESS_SYNCED"
         assert result.lyrics is not None
 
 

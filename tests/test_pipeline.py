@@ -213,22 +213,41 @@ def test_cache_trusted_synced_no_fetch(tmp_path):
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "Known limitation: cached unsynced currently blocks live fetch, "
-        "so allow_unsynced=False may return None instead of fresh synced"
+        "Known limitation: cache stores only one positive slot; after an allow_unsynced=True "
+        "request caches unsynced, later allow_unsynced=False request does not re-fetch synced"
     ),
 )
 def test_xfail_cached_unsynced_should_not_block_live_synced_when_unsynced_disallowed(
     tmp_path,
 ):
-    """Known gap: cached unsynced prevents re-fetch, so this expected behavior is xfailed."""
-    fetcher = MockFetcher("src", _fr(synced=_synced("src", confidence=90.0)))
+    """Known gap reproduced with strategy switch across two requests.
+
+    1) Fetcher returns both synced and unsynced.
+    2) allow_unsynced=True picks/caches higher-confidence unsynced.
+    3) allow_unsynced=False should re-fetch synced, but currently short-circuits on cache.
+    """
+    fetcher = MockFetcher(
+        "src",
+        _fr(
+            synced=_synced("src", confidence=85.0),
+            unsynced=_unsynced("src", confidence=95.0),
+        ),
+    )
     manager = make_manager(tmp_path)
     track = _track()
-    manager.cache.set(track, "src", _unsynced("src", confidence=85.0), ttl_seconds=3600)
 
+    # First request: permissive strategy, unsynced wins and is cached.
     with patch("lrx_cli.core.build_plan", return_value=[[fetcher]]):
-        result = manager.fetch_for_track(track, allow_unsynced=False)
+        first = manager.fetch_for_track(track, allow_unsynced=True)
+    assert first is not None
+    assert first.status == CacheStatus.SUCCESS_UNSYNCED
+
+    fetcher.called = False
+
+    # Second request: stricter strategy should recover synced via re-fetch.
+    with patch("lrx_cli.core.build_plan", return_value=[[fetcher]]):
+        second = manager.fetch_for_track(track, allow_unsynced=False)
 
     assert fetcher.called
-    assert result is not None
-    assert result.status == CacheStatus.SUCCESS_SYNCED
+    assert second is not None
+    assert second.status == CacheStatus.SUCCESS_SYNCED
