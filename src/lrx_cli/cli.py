@@ -379,6 +379,13 @@ def stats():
     print(f"Active        : {s['active']}")
     print(f"Expired       : {s['expired']}")
 
+    by_slot = s.get("by_slot", {})
+    if by_slot:
+        print(
+            "Slots         : "
+            + ", ".join(f"{k}={v}" for k, v in sorted(by_slot.items()))
+        )
+
     # Source × Status table
     table = s.get("source_status", {})
     if table:
@@ -509,6 +516,7 @@ def _print_cache_row(row: dict, indent: str = "") -> None:
     """Pretty-print a single cache row."""
     now = int(time.time())
     source = row.get("source", "?")
+    slot = row.get("positive_kind", "?")
     status = row.get("status", "?")
     artist = row.get("artist", "")
     title = row.get("title", "")
@@ -519,7 +527,7 @@ def _print_cache_row(row: dict, indent: str = "") -> None:
     confidence = row.get("confidence")
 
     name = f"{artist} - {title}" if artist and title else row.get("key", "?")
-    print(f"{indent}[{source}] {name}")
+    print(f"{indent}[{source}/{slot}] {name}")
     if album:
         print(f"{indent}  Album   : {album}")
     print(f"{indent}  Status  : {status}")

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from unittest.mock import patch
-import pytest
 
 from lrx_cli.config import HIGH_CONFIDENCE
+from lrx_cli.cache import SLOT_UNSYNCED
 from lrx_cli.core import LrcManager
 from lrx_cli.fetchers.base import BaseFetcher, FetchResult
 from lrx_cli.lrc import LRCData
@@ -137,7 +137,7 @@ def test_trusted_synced_cancels_sibling(tmp_path):
     assert result.source == "fast"
 
 
-def test_best_confidence_within_group(tmp_path):
+def test_allow_unsynced_true_picks_highest_confidence_unsynced(tmp_path):
     """When allow_unsynced=True and no trusted synced result, highest-confidence unsynced is returned."""
     low = MockFetcher("low", _fr(unsynced=_unsynced("low", confidence=40.0)))
     high = MockFetcher("high", _fr(unsynced=_unsynced("high", confidence=70.0)))
@@ -146,6 +146,22 @@ def test_best_confidence_within_group(tmp_path):
         result = manager.fetch_for_track(_track(), allow_unsynced=True)
     assert result is not None
     assert result.source == "high"
+
+
+def test_equal_confidence_prefers_synced_when_unsynced_allowed(tmp_path):
+    """Tie on confidence should still prefer synced over unsynced."""
+    dual = MockFetcher(
+        "dual",
+        _fr(
+            synced=_synced("dual", confidence=70.0),
+            unsynced=_unsynced("dual", confidence=70.0),
+        ),
+    )
+    manager = make_manager(tmp_path)
+    with patch("lrx_cli.core.build_plan", return_value=[[dual]]):
+        result = manager.fetch_for_track(_track(), allow_unsynced=True)
+    assert result is not None
+    assert result.status == CacheStatus.SUCCESS_SYNCED
 
 
 def test_unsynced_only_returns_none_when_not_allowed(tmp_path):
@@ -210,22 +226,10 @@ def test_cache_trusted_synced_no_fetch(tmp_path):
     assert result.status == CacheStatus.SUCCESS_SYNCED
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Known limitation: cache stores only one positive slot; after an allow_unsynced=True "
-        "request caches unsynced, later allow_unsynced=False request does not re-fetch synced"
-    ),
-)
-def test_xfail_cached_unsynced_should_not_block_live_synced_when_unsynced_disallowed(
+def test_cached_slots_support_strategy_switch_without_refetch(
     tmp_path,
 ):
-    """Known gap reproduced with strategy switch across two requests.
-
-    1) Fetcher returns both synced and unsynced.
-    2) allow_unsynced=True picks/caches higher-confidence unsynced.
-    3) allow_unsynced=False should re-fetch synced, but currently short-circuits on cache.
-    """
+    """When both slots are cached, strategy switch should reuse cache without re-fetch."""
     fetcher = MockFetcher(
         "src",
         _fr(
@@ -244,10 +248,32 @@ def test_xfail_cached_unsynced_should_not_block_live_synced_when_unsynced_disall
 
     fetcher.called = False
 
-    # Second request: stricter strategy should recover synced via re-fetch.
+    # Second request: stricter strategy should use synced cache slot directly.
     with patch("lrx_cli.core.build_plan", return_value=[[fetcher]]):
         second = manager.fetch_for_track(track, allow_unsynced=False)
 
-    assert fetcher.called
+    assert not fetcher.called
     assert second is not None
     assert second.status == CacheStatus.SUCCESS_SYNCED
+
+
+def test_unsynced_cache_only_still_fetches_when_unsynced_disallowed(tmp_path):
+    """If only unsynced cache slot exists, allow_unsynced=False must still fetch synced."""
+    fetcher = MockFetcher("src", _fr(synced=_synced("src", confidence=88.0)))
+    manager = make_manager(tmp_path)
+    track = _track()
+
+    manager.cache.set(
+        track,
+        "src",
+        _unsynced("src", confidence=95.0),
+        ttl_seconds=3600,
+        positive_kind=SLOT_UNSYNCED,
+    )
+
+    with patch("lrx_cli.core.build_plan", return_value=[[fetcher]]):
+        result = manager.fetch_for_track(track, allow_unsynced=False)
+
+    assert fetcher.called
+    assert result is not None
+    assert result.status == CacheStatus.SUCCESS_SYNCED

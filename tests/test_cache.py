@@ -7,6 +7,8 @@ import pytest
 
 from lrx_cli.cache import (
     CacheEngine,
+    SLOT_SYNCED,
+    SLOT_UNSYNCED,
     _generate_key,
 )
 from lrx_cli.config import DURATION_TOLERANCE_MS
@@ -67,10 +69,10 @@ def test_generate_key_raises_when_metadata_missing() -> None:
 
 
 def test_migrate_adds_confidence_version_and_boosts_unsynced(tmp_path: Path) -> None:
-    """Legacy cache without confidence_version is migrated in-place.
+    """Legacy single-row cache is migrated to slot rows.
 
     Expected behavior:
-    - add confidence_version column
+    - add positive_kind and confidence_version
     - boost SUCCESS_UNSYNCED confidence by +10 with cap at 100
     - keep SUCCESS_SYNCED confidence unchanged
     """
@@ -111,16 +113,107 @@ def test_migrate_adds_confidence_version_and_boosts_unsynced(tmp_path: Path) -> 
     with sqlite3.connect(db_path) as conn:
         cols = {r[1] for r in conn.execute("PRAGMA table_info(cache)").fetchall()}
         rows = conn.execute(
-            "SELECT key, status, confidence, confidence_version FROM cache ORDER BY key"
+            "SELECT key, positive_kind, status, confidence, confidence_version FROM cache ORDER BY key, positive_kind"
         ).fetchall()
 
+    assert "positive_kind" in cols
     assert "confidence_version" in cols
     by_key = {
-        k: (status, confidence, version) for k, status, confidence, version in rows
+        (k, slot): (status, confidence, version)
+        for k, slot, status, confidence, version in rows
     }
-    assert by_key["u1"] == ("SUCCESS_UNSYNCED", 95.0, 1)
-    assert by_key["u2"] == ("SUCCESS_UNSYNCED", 100.0, 1)
-    assert by_key["s1"] == ("SUCCESS_SYNCED", 70.0, 1)
+    assert by_key[("u1", SLOT_UNSYNCED)] == ("SUCCESS_UNSYNCED", 95.0, 1)
+    assert by_key[("u2", SLOT_UNSYNCED)] == ("SUCCESS_UNSYNCED", 100.0, 1)
+    assert by_key[("s1", SLOT_SYNCED)] == ("SUCCESS_SYNCED", 70.0, 1)
+
+
+def test_migrate_negative_row_splits_into_two_slot_rows(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy-negative.db"
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE cache (
+                key TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                status TEXT NOT NULL,
+                lyrics TEXT,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER,
+                artist TEXT,
+                title TEXT,
+                album TEXT,
+                length INTEGER,
+                confidence REAL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO cache
+                (key, source, status, lyrics, created_at, expires_at, artist, title, album, length, confidence)
+            VALUES
+                ('n1', 's1', 'NOT_FOUND', NULL, 1, NULL, 'A', 'T', 'AL', 180000, 0.0)
+            """
+        )
+        conn.commit()
+
+    CacheEngine(str(db_path))
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT key, positive_kind, status FROM cache ORDER BY positive_kind"
+        ).fetchall()
+
+    assert rows == [
+        ("n1", SLOT_SYNCED, "NOT_FOUND"),
+        ("n1", SLOT_UNSYNCED, "NOT_FOUND"),
+    ]
+
+
+def test_migrate_normalizes_old_slot_spelling(tmp_path: Path) -> None:
+    db_path = tmp_path / "slot-spelling.db"
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE cache (
+                key TEXT NOT NULL,
+                positive_kind TEXT NOT NULL,
+                source TEXT NOT NULL,
+                status TEXT NOT NULL,
+                lyrics TEXT,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER,
+                artist TEXT,
+                title TEXT,
+                album TEXT,
+                length INTEGER,
+                confidence REAL,
+                confidence_version INTEGER,
+                PRIMARY KEY (key, positive_kind)
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO cache
+                (key, positive_kind, source, status, lyrics, created_at, expires_at, artist, title, album, length, confidence, confidence_version)
+            VALUES
+                ('k1', 'SYNCHED', 's1', 'SUCCESS_SYNCED', 'l1', 1, NULL, 'A', 'T', 'AL', 180000, 80.0, 1),
+                ('k1', 'UNSYNCHED', 's1', 'SUCCESS_UNSYNCED', 'l2', 1, NULL, 'A', 'T', 'AL', 180000, 70.0, 1)
+            """
+        )
+        conn.commit()
+
+    CacheEngine(str(db_path))
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT positive_kind FROM cache ORDER BY positive_kind"
+        ).fetchall()
+
+    assert rows == [(SLOT_SYNCED,), (SLOT_UNSYNCED,)]
 
 
 def test_set_and_get_roundtrip_with_ttl(
@@ -136,9 +229,10 @@ def test_set_and_get_roundtrip_with_ttl(
         ttl_seconds=120,
     )
 
-    cached = cache_db.get(track, "lrclib")
+    cached_rows = cache_db.get_all(track, "lrclib")
 
-    assert cached is not None
+    assert len(cached_rows) == 1
+    cached = cached_rows[0]
     assert cached.status is CacheStatus.SUCCESS_SYNCED
     assert str(cached.lyrics) == "[00:01.00]line"
     assert cached.source == "lrclib"
@@ -158,10 +252,27 @@ def test_get_expired_entry_returns_none_and_removes_row(
     )
 
     monkeypatch.setattr("lrx_cli.cache.time.time", lambda: 2_000_020)
-    cached = cache_db.get(track, "netease")
+    cached_rows = cache_db.get_all(track, "netease")
 
-    assert cached is None
+    assert cached_rows == []
     assert cache_db.query_all() == []
+
+
+def test_set_negative_without_slot_writes_both_slots(cache_db: CacheEngine) -> None:
+    track = _track()
+    cache_db.set(
+        track, "src", _result(CacheStatus.NOT_FOUND, None, "src"), ttl_seconds=60
+    )
+
+    with sqlite3.connect(cache_db.db_path) as conn:
+        rows = conn.execute(
+            "SELECT positive_kind, status FROM cache ORDER BY positive_kind"
+        ).fetchall()
+
+    assert rows == [
+        (SLOT_SYNCED, CacheStatus.NOT_FOUND.value),
+        (SLOT_UNSYNCED, CacheStatus.NOT_FOUND.value),
+    ]
 
 
 def test_get_backfills_missing_length_when_track_provides_it(
@@ -187,9 +298,9 @@ def test_get_backfills_missing_length_when_track_provides_it(
         album=None,
         length=200000,
     )
-    cached = cache_db.get(track_with_length, "spotify")
+    cached_rows = cache_db.get_all(track_with_length, "spotify")
 
-    assert cached is not None
+    assert cached_rows
 
     with sqlite3.connect(cache_db.db_path) as conn:
         row = conn.execute("SELECT length FROM cache LIMIT 1").fetchone()
@@ -268,22 +379,6 @@ def test_prune_removes_only_expired_rows(
     assert rows[0]["source"] == "s-active"
 
 
-def test_find_best_positive_uses_exact_match_and_prefers_synced(
-    cache_db: CacheEngine,
-) -> None:
-    track = _track(artist="Artist", title="Song", album="Album")
-    cache_db.set(track, "s1", _result(CacheStatus.SUCCESS_UNSYNCED, "u", "s1"))
-    cache_db.set(track, "s2", _result(CacheStatus.SUCCESS_SYNCED, "s", "s2"))
-
-    best = cache_db.find_best_positive(track, CacheStatus.SUCCESS_SYNCED)
-
-    assert best is not None
-    assert best.status is CacheStatus.SUCCESS_SYNCED
-    assert str(best.lyrics) == "s"
-    # find_best_positive always reports cache-search source
-    assert best.source == "cache-search"
-
-
 def test_find_best_positive_returns_status_specific_results(
     cache_db: CacheEngine,
 ) -> None:
@@ -297,6 +392,7 @@ def test_find_best_positive_returns_status_specific_results(
     assert best_synced is not None
     assert best_synced.status is CacheStatus.SUCCESS_SYNCED
     assert str(best_synced.lyrics) == "s"
+    assert best_synced.source == "cache-search"
 
     best_unsynced = cache_db.find_best_positive(track, CacheStatus.SUCCESS_UNSYNCED)
     assert best_unsynced is not None
@@ -395,6 +491,34 @@ def test_update_confidence_targets_specific_source(cache_db: CacheEngine) -> Non
     assert rows["s2"]["confidence"] == 100.0  # unchanged default
 
 
+def test_update_confidence_updates_both_slots_for_same_source(
+    cache_db: CacheEngine,
+) -> None:
+    track = _track(artist="A", title="T", album="AL")
+    cache_db.set(
+        track,
+        "src",
+        _result(CacheStatus.SUCCESS_SYNCED, "sync", "src"),
+        positive_kind=SLOT_SYNCED,
+    )
+    cache_db.set(
+        track,
+        "src",
+        _result(CacheStatus.SUCCESS_UNSYNCED, "unsync", "src"),
+        positive_kind=SLOT_UNSYNCED,
+    )
+
+    updated = cache_db.update_confidence(track, 66.0, "src")
+    assert updated == 2
+
+    with sqlite3.connect(cache_db.db_path) as conn:
+        rows = conn.execute(
+            "SELECT positive_kind, confidence FROM cache WHERE source = 'src' ORDER BY positive_kind"
+        ).fetchall()
+
+    assert rows == [(SLOT_SYNCED, 66.0), (SLOT_UNSYNCED, 66.0)]
+
+
 def test_update_confidence_returns_zero_for_missing_source(
     cache_db: CacheEngine,
 ) -> None:
@@ -476,3 +600,5 @@ def test_query_track_and_stats_return_expected_aggregates(
     assert stats["expired"] == 0
     assert stats["by_status"][CacheStatus.SUCCESS_SYNCED.value] == 1
     assert stats["by_status"][CacheStatus.SUCCESS_UNSYNCED.value] == 1
+    assert stats["by_slot"][SLOT_SYNCED] == 1
+    assert stats["by_slot"][SLOT_UNSYNCED] == 1

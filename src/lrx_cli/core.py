@@ -20,9 +20,12 @@ from .config import (
     TTL_NOT_FOUND,
     TTL_NETWORK_ERROR,
     HIGH_CONFIDENCE,
+    SLOT_SYNCED,
+    SLOT_UNSYNCED,
 )
 from .models import TrackMeta, LyricResult, CacheStatus
 from .enrichers import create_enrichers, enrich_track
+from .ranking import is_better_result, select_best_positive
 
 
 # Maps CacheStatus to the default TTL used when storing results
@@ -34,44 +37,11 @@ _STATUS_TTL: dict[CacheStatus, Optional[int]] = {
 }
 
 
-def _is_better(new: LyricResult, old: LyricResult, allow_unsynced: bool) -> bool:
-    """Compare two results: higher confidence wins; if equal, synced > unsynced.
-    If allow_unsynced is False, treat unsynced as strictly worse than any synced."""
-
-    # If new is negative, it's definitely not better
-    if new.status not in (CacheStatus.SUCCESS_SYNCED, CacheStatus.SUCCESS_UNSYNCED):
-        return False
-    # If old is negative, the result is better or equal regardless of other factors
-    if old.status not in (CacheStatus.SUCCESS_SYNCED, CacheStatus.SUCCESS_UNSYNCED):
-        return True
-    # If unsynced results are not allowed, treat them as strictly worse than any synced result
-    if not allow_unsynced:
-        if (
-            new.status == CacheStatus.SUCCESS_UNSYNCED
-            and old.status == CacheStatus.SUCCESS_SYNCED
-        ):
-            return False
-        if (
-            old.status == CacheStatus.SUCCESS_UNSYNCED
-            and new.status == CacheStatus.SUCCESS_SYNCED
-        ):
-            return True
-    # Compare confidence
-    if new.confidence != old.confidence:
-        return new.confidence > old.confidence
-    # Equal confidence — prefer synced as tiebreaker
-    # Will return false if unsynced results are not allowed
-    return (
-        new.status == CacheStatus.SUCCESS_SYNCED
-        and old.status != CacheStatus.SUCCESS_SYNCED
-    )
-
-
 def _pick_for_return(
     result: FetchResult,
     allow_unsynced: bool,
 ) -> Optional[LyricResult]:
-    """Pick which lyric result should participate in final selection."""
+    """Pick best positive slot for final selection under current strategy."""
     candidates: list[LyricResult] = []
     if result.synced and result.synced.status == CacheStatus.SUCCESS_SYNCED:
         candidates.append(result.synced)
@@ -82,43 +52,41 @@ def _pick_for_return(
     ):
         candidates.append(result.unsynced)
 
-    if not candidates:
-        return None
-
-    best = candidates[0]
-    for c in candidates[1:]:
-        if _is_better(c, best, allow_unsynced=True):
-            best = c
-    return best
+    return select_best_positive(candidates, allow_unsynced=True)
 
 
-def _pick_for_cache(result: FetchResult) -> Optional[LyricResult]:
-    """Pick a single cacheable result from FetchResult for legacy one-slot cache schema."""
-    slots = [r for r in (result.synced, result.unsynced) if r is not None]
-    if not slots:
-        return None
+def _iter_slot_results(result: FetchResult) -> list[tuple[str, LyricResult]]:
+    """Return all non-None slot results with their cache slot key."""
+    out: list[tuple[str, LyricResult]] = []
+    if result.synced is not None:
+        out.append((SLOT_SYNCED, result.synced))
+    if result.unsynced is not None:
+        out.append((SLOT_UNSYNCED, result.unsynced))
+    return out
 
-    positives = [
-        r
-        for r in slots
-        if r.status in (CacheStatus.SUCCESS_SYNCED, CacheStatus.SUCCESS_UNSYNCED)
-    ]
-    if positives:
-        best = positives[0]
-        for p in positives[1:]:
-            if _is_better(p, best, allow_unsynced=True):
-                best = p
-        return best
 
-    # If there is no positive result, prefer caching NETWORK_ERROR over NOT_FOUND
-    # to avoid long false-negative TTL when error signals disagree between slots.
-    for r in slots:
-        if r.status == CacheStatus.NETWORK_ERROR:
-            return r
-    for r in slots:
-        if r.status == CacheStatus.NOT_FOUND:
-            return r
-    return None
+def _pick_cached_for_return(
+    cached_rows: list[LyricResult],
+    allow_unsynced: bool,
+) -> Optional[LyricResult]:
+    """Convert cached slot rows into FetchResult-like view and select return candidate."""
+    fr = FetchResult()
+    for row in cached_rows:
+        if row.status == CacheStatus.SUCCESS_SYNCED:
+            fr = FetchResult(synced=row, unsynced=fr.unsynced)
+        elif row.status == CacheStatus.SUCCESS_UNSYNCED:
+            fr = FetchResult(synced=fr.synced, unsynced=row)
+    return _pick_for_return(fr, allow_unsynced)
+
+
+def _has_negative_for_both_slots(cached_rows: list[LyricResult]) -> bool:
+    """True when both slot rows are present and both are negative."""
+    if len(cached_rows) < 2:
+        return False
+    return all(
+        r.status in (CacheStatus.NOT_FOUND, CacheStatus.NETWORK_ERROR)
+        for r in cached_rows
+    )
 
 
 class LrcManager:
@@ -137,33 +105,38 @@ class LrcManager:
         bypass_cache: bool,
         allow_unsynced: bool,
     ) -> list[tuple[str, LyricResult]]:
-        """Run one group: cache-check first, then parallel-fetch uncached. Returns (source, result) pairs."""
+        """Run one group with slot-aware cache check then parallel fetch uncached sources."""
         cached_results: list[tuple[str, LyricResult]] = []
         need_fetch: list[BaseFetcher] = []
 
         for fetcher in group:
             source = fetcher.source_name
             if not bypass_cache and not fetcher.self_cached:
-                cached = self.cache.get(track, source)
-                if cached:
-                    if cached.status in (
-                        CacheStatus.NOT_FOUND,
-                        CacheStatus.NETWORK_ERROR,
-                    ):
+                cached_rows = self.cache.get_all(track, source)
+                if cached_rows:
+                    if _has_negative_for_both_slots(cached_rows):
                         logger.debug(
-                            f"[{source}] cache hit: {cached.status.value}, skipping"
+                            f"[{source}] cache hit: all slots negative, skipping"
                         )
                         continue
-                    is_trusted = cached.confidence >= HIGH_CONFIDENCE
-                    logger.info(
-                        f"[{source}] cache hit: {cached.status.value}"
-                        f" (confidence={cached.confidence:.0f})"
+
+                    cached_for_return = _pick_cached_for_return(
+                        cached_rows, allow_unsynced
                     )
-                    cached_results.append((source, cached))
-                    # Return immediately on trusted synced cache hit
-                    if cached.status == CacheStatus.SUCCESS_SYNCED and is_trusted:
-                        return cached_results
-                    continue
+                    if cached_for_return is not None:
+                        is_trusted = cached_for_return.confidence >= HIGH_CONFIDENCE
+                        logger.info(
+                            f"[{source}] cache hit: {cached_for_return.status.value}"
+                            f" (confidence={cached_for_return.confidence:.0f})"
+                        )
+                        cached_results.append((source, cached_for_return))
+                        # Return immediately on trusted synced cache hit
+                        if (
+                            cached_for_return.status == CacheStatus.SUCCESS_SYNCED
+                            and is_trusted
+                        ):
+                            return cached_results
+                        continue
             elif not fetcher.self_cached:
                 logger.debug(f"[{source}] cache bypassed")
             need_fetch.append(fetcher)
@@ -193,18 +166,20 @@ class LrcManager:
                         logger.debug(f"[{source}] returned None")
                         continue
 
-                    cache_result = _pick_for_cache(result)
                     return_result = _pick_for_return(result, allow_unsynced)
 
-                    if (
-                        cache_result is not None
-                        and not fetcher.self_cached
-                        and not bypass_cache
-                    ):
-                        ttl = cache_result.ttl or _STATUS_TTL.get(
-                            cache_result.status, TTL_NOT_FOUND
-                        )
-                        self.cache.set(track, source, cache_result, ttl_seconds=ttl)
+                    if not fetcher.self_cached and not bypass_cache:
+                        for slot_kind, slot_result in _iter_slot_results(result):
+                            ttl = slot_result.ttl or _STATUS_TTL.get(
+                                slot_result.status, TTL_NOT_FOUND
+                            )
+                            self.cache.set(
+                                track,
+                                source,
+                                slot_result,
+                                ttl_seconds=ttl,
+                                positive_kind=slot_kind,
+                            )
 
                     if return_result is not None:
                         logger.info(
@@ -269,8 +244,10 @@ class LrcManager:
                     )
                     return result
 
-                if best_result is None or _is_better(
-                    result, best_result, allow_unsynced
+                if best_result is None or is_better_result(
+                    result,
+                    best_result,
+                    allow_unsynced=allow_unsynced,
                 ):
                     best_result = result
 

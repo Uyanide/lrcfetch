@@ -20,6 +20,9 @@ APP_VERSION = version(APP_NAME)
 # Paths
 CACHE_DIR = user_cache_dir(APP_NAME, APP_AUTHOR)
 DB_PATH = os.path.join(CACHE_DIR, "cache.db")
+# Slot identifiers used by per-slot cache rows.
+SLOT_SYNCED = "SYNCED"
+SLOT_UNSYNCED = "UNSYNCED"
 
 # .env loading
 _config_env = Path(user_config_dir(APP_NAME, APP_AUTHOR)) / ".env"

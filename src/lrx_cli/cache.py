@@ -1,8 +1,8 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-25 10:18:03
-Description: SQLite-based lyric cache with per-source storage, TTL expiration,
-             and lightweight schema migrations (including confidence versioning).
+Description: SQLite-based lyric cache with per-source slot rows, TTL expiration,
+             and schema migrations (confidence versioning + slot migration).
 """
 
 import json
@@ -14,8 +14,18 @@ from loguru import logger
 
 from .lrc import LRCData
 from .normalize import normalize_for_match as _normalize_for_match
-from .config import DURATION_TOLERANCE_MS, LEGACY_CONFIDENCE, CONFIDENCE_ALGO_VERSION
+from .config import (
+    DURATION_TOLERANCE_MS,
+    LEGACY_CONFIDENCE,
+    CONFIDENCE_ALGO_VERSION,
+    SLOT_SYNCED,
+    SLOT_UNSYNCED,
+)
 from .models import TrackMeta, LyricResult, CacheStatus
+from .ranking import is_positive_status, select_best_positive
+
+
+_ALL_SLOTS = (SLOT_SYNCED, SLOT_UNSYNCED)
 
 
 # Fixed WHERE clause for exact track matching. Column names are hardcoded
@@ -76,31 +86,8 @@ class CacheEngine:
         self._init_db()
 
     def _init_db(self) -> None:
-        """Create or migrate cache schema and credentials table.
-
-        Migration notes:
-        - Add structural columns introduced after initial releases.
-        - When introducing confidence versioning, rebalance legacy unsynced
-          confidence (+10, capped at 100) and stamp migrated rows with the
-          current algorithm version.
-        """
+        """Create cache tables and run one-time slot/cache migrations."""
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS cache (
-                    key TEXT PRIMARY KEY,
-                    source TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    lyrics TEXT,
-                    created_at INTEGER NOT NULL,
-                    expires_at INTEGER,
-                    artist TEXT,
-                    title TEXT,
-                    album TEXT,
-                    length INTEGER,
-                    confidence REAL,
-                    confidence_version INTEGER
-                )
-            """)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS credentials (
                     name TEXT PRIMARY KEY,
@@ -108,23 +95,44 @@ class CacheEngine:
                     expires_at INTEGER
                 )
             """)
-            # Incremental, idempotent migrations for existing databases.
+            cache_exists = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cache'"
+            ).fetchone()
+            if not cache_exists:
+                self._create_cache_table(conn)
+                conn.commit()
+                return
+
             cols = {r[1] for r in conn.execute("PRAGMA table_info(cache)").fetchall()}
-            if "length" not in cols:
-                conn.execute("ALTER TABLE cache ADD COLUMN length INTEGER")
-            if "confidence" not in cols:
-                conn.execute("ALTER TABLE cache ADD COLUMN confidence REAL")
+
+            if "positive_kind" not in cols:
+                # Normalize legacy shape first so migration SQL can safely read all columns.
+                if "length" not in cols:
+                    conn.execute("ALTER TABLE cache ADD COLUMN length INTEGER")
+                if "confidence" not in cols:
+                    conn.execute("ALTER TABLE cache ADD COLUMN confidence REAL")
+                if "confidence_version" not in cols:
+                    conn.execute(
+                        "ALTER TABLE cache ADD COLUMN confidence_version INTEGER"
+                    )
+                self._migrate_legacy_to_slot_cache(conn)
+                cols = {
+                    r[1] for r in conn.execute("PRAGMA table_info(cache)").fetchall()
+                }
+
             if "confidence_version" not in cols:
                 conn.execute("ALTER TABLE cache ADD COLUMN confidence_version INTEGER")
-                # First-time confidence-version migration: boost unsynced rows
-                # from older scoring assumptions while preserving upper bound.
                 conn.execute(
                     """
                     UPDATE cache
                     SET confidence = MIN(100.0, COALESCE(confidence, ?) + 10.0)
-                    WHERE status = ?
+                    WHERE status = ? AND positive_kind = ?
                     """,
-                    (LEGACY_CONFIDENCE, CacheStatus.SUCCESS_UNSYNCED.value),
+                    (
+                        LEGACY_CONFIDENCE,
+                        CacheStatus.SUCCESS_UNSYNCED.value,
+                        SLOT_UNSYNCED,
+                    ),
                 )
                 conn.execute(
                     "UPDATE cache SET confidence_version = ? WHERE confidence_version IS NULL",
@@ -132,92 +140,182 @@ class CacheEngine:
                 )
             conn.commit()
 
+    def _create_cache_table(self, conn: sqlite3.Connection) -> None:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cache (
+                key TEXT NOT NULL,
+                positive_kind TEXT NOT NULL,
+                source TEXT NOT NULL,
+                status TEXT NOT NULL,
+                lyrics TEXT,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER,
+                artist TEXT,
+                title TEXT,
+                album TEXT,
+                length INTEGER,
+                confidence REAL,
+                confidence_version INTEGER,
+                PRIMARY KEY (key, positive_kind)
+            )
+        """)
+
+    def _migrate_legacy_to_slot_cache(self, conn: sqlite3.Connection) -> None:
+        """One-time migration from single-row cache to slot-scoped cache rows."""
+        conn.execute("ALTER TABLE cache RENAME TO cache_legacy")
+        self._create_cache_table(conn)
+
+        positive_statuses = (
+            CacheStatus.SUCCESS_SYNCED.value,
+            CacheStatus.SUCCESS_UNSYNCED.value,
+        )
+        negative_statuses = (
+            CacheStatus.NOT_FOUND.value,
+            CacheStatus.NETWORK_ERROR.value,
+        )
+
+        conn.execute(
+            """
+            INSERT INTO cache (
+                key, positive_kind, source, status, lyrics, created_at, expires_at,
+                artist, title, album, length, confidence, confidence_version
+            )
+            SELECT
+                key,
+                CASE
+                    WHEN status = ? THEN ?
+                    WHEN status = ? THEN ?
+                    ELSE ?
+                END,
+                source, status, lyrics, created_at, expires_at, artist, title, album, length,
+                CASE
+                    WHEN status = ? THEN MIN(100.0, COALESCE(confidence, ?) + 10.0)
+                    WHEN status = ? THEN COALESCE(confidence, ?)
+                    ELSE COALESCE(confidence, 0.0)
+                END,
+                COALESCE(confidence_version, ?)
+            FROM cache_legacy
+            WHERE status IN (?, ?)
+            """,
+            (
+                CacheStatus.SUCCESS_SYNCED.value,
+                SLOT_SYNCED,
+                CacheStatus.SUCCESS_UNSYNCED.value,
+                SLOT_UNSYNCED,
+                SLOT_SYNCED,
+                CacheStatus.SUCCESS_UNSYNCED.value,
+                LEGACY_CONFIDENCE,
+                CacheStatus.SUCCESS_SYNCED.value,
+                LEGACY_CONFIDENCE,
+                CONFIDENCE_ALGO_VERSION,
+                positive_statuses[0],
+                positive_statuses[1],
+            ),
+        )
+
+        for slot in _ALL_SLOTS:
+            conn.execute(
+                """
+                INSERT INTO cache (
+                    key, positive_kind, source, status, lyrics, created_at, expires_at,
+                    artist, title, album, length, confidence, confidence_version
+                )
+                SELECT
+                    key, ?, source, status, lyrics, created_at, expires_at, artist, title,
+                    album, length,
+                    COALESCE(confidence, 0.0),
+                    COALESCE(confidence_version, ?)
+                FROM cache_legacy
+                WHERE status IN (?, ?)
+                """,
+                (
+                    slot,
+                    CONFIDENCE_ALGO_VERSION,
+                    negative_statuses[0],
+                    negative_statuses[1],
+                ),
+            )
+
+        conn.execute("DROP TABLE cache_legacy")
+
+    @staticmethod
+    def _slot_for_status(status: CacheStatus) -> str:
+        if status == CacheStatus.SUCCESS_SYNCED:
+            return SLOT_SYNCED
+        if status == CacheStatus.SUCCESS_UNSYNCED:
+            return SLOT_UNSYNCED
+        raise ValueError(f"Status {status.value} requires explicit slot")
+
     # Read
 
-    def get(self, track: TrackMeta, source: str) -> Optional[LyricResult]:
-        """Look up a cached result for *track* from *source*.
-
-        Returns None on cache miss or expiration.
-        """
+    def get_all(self, track: TrackMeta, source: str) -> list[LyricResult]:
+        """Return all non-expired cached slot rows for *track*/*source*."""
         try:
             key = _generate_key(track, source)
         except ValueError:
-            return None
+            return []
 
+        now = int(time.time())
         with sqlite3.connect(self.db_path) as conn:
-            row = conn.execute(
-                "SELECT status, lyrics, source, expires_at, length, confidence FROM cache WHERE key = ?",
-                (key,),
-            ).fetchone()
+            conn.execute(
+                "DELETE FROM cache WHERE key = ? AND expires_at IS NOT NULL AND expires_at < ?",
+                (key, now),
+            )
+            conn.commit()
+            rows = conn.execute(
+                """
+                SELECT status, lyrics, source, expires_at, length, confidence
+                FROM cache
+                WHERE key = ? AND (expires_at IS NULL OR expires_at > ?)
+                ORDER BY positive_kind
+                """,
+                (key, now),
+            ).fetchall()
 
-            if not row:
+            if not rows:
                 logger.debug(f"Cache miss: {source} / {track.display_name()}")
-                return None
+                return []
 
-            status_str, lyrics, src, expires_at, cached_length, confidence = row
-
-            # Check TTL expiration
-            if expires_at and expires_at < int(time.time()):
-                logger.debug(f"Cache expired: {source} / {track.display_name()}")
-                conn.execute("DELETE FROM cache WHERE key = ?", (key,))
-                conn.commit()
-                return None
-
-            # Backfill length if the cached row is missing it
-            if cached_length is None and track.length is not None:
+            # Backfill missing length for all slot rows under the same key.
+            if track.length is not None:
                 conn.execute(
-                    "UPDATE cache SET length = ? WHERE key = ?",
+                    "UPDATE cache SET length = ? WHERE key = ? AND length IS NULL",
                     (track.length, key),
                 )
                 conn.commit()
 
-            remaining = expires_at - int(time.time()) if expires_at else None
-            logger.debug(
-                f"Cache hit: {source} / {track.display_name()} "
-                f"[{status_str}, ttl={remaining}s]"
-            )
+        results: list[LyricResult] = []
+        for status_str, lyrics, src, expires_at, _cached_length, confidence in rows:
+            remaining = expires_at - now if expires_at else None
             status = CacheStatus(status_str)
             if confidence is None:
-                if status in (CacheStatus.SUCCESS_SYNCED, CacheStatus.SUCCESS_UNSYNCED):
+                if is_positive_status(status):
                     confidence = LEGACY_CONFIDENCE
                 else:
-                    confidence = 0.0  # negative statuses: no confidence
-
-            return LyricResult(
-                status=status,
-                lyrics=LRCData(lyrics) if lyrics else None,
-                source=src,
-                ttl=remaining,
-                confidence=confidence,
+                    confidence = 0.0
+            results.append(
+                LyricResult(
+                    status=status,
+                    lyrics=LRCData(lyrics) if lyrics else None,
+                    source=src,
+                    ttl=remaining,
+                    confidence=confidence,
+                )
             )
 
-    def get_best(self, track: TrackMeta, sources: list[str]) -> Optional[LyricResult]:
-        """Return the best cached result across *sources* by confidence.
+        return results
 
-        Skips negative statuses (NOT_FOUND, NETWORK_ERROR) — those are only
-        consulted per-source to avoid redundant fetches.
+    def get_best(self, track: TrackMeta, sources: list[str]) -> Optional[LyricResult]:
+        """Return best positive cached result across sources.
+
+        Negative statuses are ignored by ranking.
         """
-        best: Optional[LyricResult] = None
+        positives: list[LyricResult] = []
         for src in sources:
-            cached = self.get(track, src)
-            if not cached:
-                continue
-            if cached.status not in (
-                CacheStatus.SUCCESS_SYNCED,
-                CacheStatus.SUCCESS_UNSYNCED,
-            ):
-                continue
-            if best is None:
-                best = cached
-            elif cached.confidence > best.confidence:
-                best = cached
-            elif (
-                cached.confidence == best.confidence
-                and cached.status == CacheStatus.SUCCESS_SYNCED
-                and best.status != CacheStatus.SUCCESS_SYNCED
-            ):
-                best = cached
-        return best
+            rows = self.get_all(track, src)
+            positives.extend(r for r in rows if is_positive_status(r.status))
+
+        return select_best_positive(positives, allow_unsynced=True)
 
     # Write
 
@@ -227,6 +325,7 @@ class CacheEngine:
         source: str,
         result: LyricResult,
         ttl_seconds: Optional[int] = None,
+        positive_kind: Optional[str] = None,
     ) -> None:
         """Store a lyric result in the cache.
 
@@ -242,27 +341,41 @@ class CacheEngine:
         now = int(time.time())
         expires_at = now + ttl_seconds if ttl_seconds else None
 
+        kinds: list[str]
+        if positive_kind is not None:
+            kinds = [positive_kind]
+        elif result.status in (
+            CacheStatus.SUCCESS_SYNCED,
+            CacheStatus.SUCCESS_UNSYNCED,
+        ):
+            kinds = [self._slot_for_status(result.status)]
+        else:
+            # Convenience for callers that still pass a single negative result.
+            kinds = [SLOT_SYNCED, SLOT_UNSYNCED]
+
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """INSERT OR REPLACE INTO cache
-                   (key, source, status, lyrics, created_at, expires_at,
-                          artist, title, album, length, confidence, confidence_version)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    key,
-                    source,
-                    result.status.value,
-                    str(result.lyrics) if result.lyrics else None,
-                    now,
-                    expires_at,
-                    track.artist,
-                    track.title,
-                    track.album,
-                    track.length,
-                    result.confidence,
-                    CONFIDENCE_ALGO_VERSION,
-                ),
-            )
+            for kind in kinds:
+                conn.execute(
+                    """INSERT OR REPLACE INTO cache
+                       (key, positive_kind, source, status, lyrics, created_at, expires_at,
+                              artist, title, album, length, confidence, confidence_version)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        key,
+                        kind,
+                        source,
+                        result.status.value,
+                        str(result.lyrics) if result.lyrics else None,
+                        now,
+                        expires_at,
+                        track.artist,
+                        track.title,
+                        track.album,
+                        track.length,
+                        result.confidence,
+                        CONFIDENCE_ALGO_VERSION,
+                    ),
+                )
             conn.commit()
         logger.debug(
             f"Cached: {source} / {track.display_name()} "
@@ -332,6 +445,7 @@ class CacheEngine:
                 f"SELECT status, lyrics, source, confidence FROM cache"
                 f" WHERE {_TRACK_WHERE}"
                 "   AND status = ?"
+                "   AND positive_kind = ?"
                 "   AND (expires_at IS NULL OR expires_at > ?)"
                 " ORDER BY COALESCE(confidence, ?) DESC,"
                 " CASE status WHEN ? THEN 0 ELSE 1 END,"
@@ -339,6 +453,7 @@ class CacheEngine:
                 _track_where_params(track)
                 + [
                     status.value,
+                    self._slot_for_status(status),
                     now,
                     LEGACY_CONFIDENCE,
                     CacheStatus.SUCCESS_SYNCED.value,
@@ -520,6 +635,11 @@ class CacheEngine:
                     "SELECT source, COUNT(*) FROM cache GROUP BY source"
                 ).fetchall()
             )
+            by_slot = dict(
+                conn.execute(
+                    "SELECT positive_kind, COUNT(*) FROM cache GROUP BY positive_kind"
+                ).fetchall()
+            )
             # Source × Status cross-tabulation
             source_status = conn.execute(
                 "SELECT source, status, COUNT(*) FROM cache GROUP BY source, status"
@@ -567,6 +687,7 @@ class CacheEngine:
             "active": total - expired,
             "by_status": by_status,
             "by_source": by_source,
+            "by_slot": by_slot,
             "source_status": source_status_table,
             "confidence_buckets": buckets,
         }
