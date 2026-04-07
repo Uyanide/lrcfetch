@@ -1,9 +1,11 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-25 21:54:01
-Description: Shared LRC time-tag utilities (definitely overengineered).
+Description: LRC parsing, modeling, and serialization helpers.
 """
 
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 import re
 from pathlib import Path
 from typing import Optional
@@ -15,27 +17,18 @@ from .models import CacheStatus
 #   [mm:ss], [mm:ss.c], [mm:ss.cc], [mm:ss.ccc], [mm:ss:cc], …
 _RAW_TAG_RE = re.compile(r"\[(\d{2,}):(\d{2})(?:[.:](\d{1,3}))?\]")
 
-# Standard format after normalization: [mm:ss.cc]
-# _STD_TAG_RE = re.compile(r"\[\d{2,}:\d{2}\.\d{2}\]")
-
-# Standard format with capture groups
-_STD_TAG_CAPTURE_RE = re.compile(r"\[(\d{2,}):(\d{2})\.(\d{2})\]")
-
-# [offset:+/-xxx] tag — value in milliseconds
-_OFFSET_RE = re.compile(r"^\[offset:\s*([+-]?\d+)\]\s*$", re.MULTILINE | re.IGNORECASE)
-
-# Any number of ID/Time tags at the start of a line
+# One or more leading bracket tags at line start.
+# Used to strip start tags in plain-mode fallback.
 _LINE_START_TAGS_RE = re.compile(r"^(?:\[[^\]]*\])+", re.MULTILINE)
 
-# Any number of standard time tags at the start of a line
-_LINE_START_STD_TAGS_RE = re.compile(r"^(?:\[\d{2,}:\d{2}\.\d{2}\])+", re.MULTILINE)
+# Timed word-sync tags: <mm:ss>, <mm:ss.c>, <mm:ss.cc>, <mm:ss:cc>
+_WORD_SYNC_TAG_RE = re.compile(r"<(\d{2,}):(\d{2})(?:[.:](\d{1,3}))?>")
 
-# Word-level sync tags
-#   <mm:ss>, <mm:ss.c>, <mm:ss.cc>, <mm:ss:cc>, <xx,yy,zz>
-_WORD_SYNC_TAG_RE = re.compile(r"<\d{2,}:\d{2}(?:[.:]\d{1,3})?>|<\d+,\d+,\d+>")
+# A single doc-level tag line: [key:value].
+# Disallow nested [] in value so multi-tag lines are not treated as doc tags.
+_DOC_TAG_RE = re.compile(r"^\[([^:\]\[]+):([^\[\]]*)\]$")
 
-# QRC is totally a completely different matter. Since they are still providing standard LRC APIs,
-# it might be a good idea to leave this mass to the future :)
+# QRC uses a different format and is intentionally out of scope here.
 
 
 def _remove_pattern(text: str, pattern: re.Pattern) -> str:
@@ -58,170 +51,282 @@ def _raw_tag_to_ms(mm: str, ss: str, frac: Optional[str]) -> int:
     return (int(mm) * 60 + int(ss)) * 1000 + ms
 
 
-def _raw_tag_to_cs(mm: str, ss: str, frac: Optional[str]) -> str:
-    """Convert parsed time tag components to standard [mm:ss.cc] string."""
-    if frac is None:
-        ms = 0
-    else:
-        # cc in [mm:ss:cc] is also treated as centiseconds, per LRC spec
-        #             ^
-        # why does this format even exist, idk
-        n = len(frac)
-        if n == 1:
-            ms = int(frac) * 100
-        elif n == 2:
-            ms = int(frac) * 10
-        else:
-            ms = int(frac)
-    cs = min(round(ms / 10), 99)
-    return f"[{mm}:{ss}.{cs:02d}]"
+def _ms_to_std_tag(total_ms: int) -> str:
+    mm = max(0, total_ms) // 60000
+    ss = (max(0, total_ms) % 60000) // 1000
+    cs = min(round((max(0, total_ms) % 1000) / 10), 99)
+    return f"[{mm:02d}:{ss:02d}.{cs:02d}]"
 
 
-def _sanitize_lyric_text(text: str) -> str:
-    """Remove possibly word-sync time tags in lyric
+def _ms_to_word_tag(total_ms: int) -> str:
+    mm = max(0, total_ms) // 60000
+    ss = (max(0, total_ms) % 60000) // 1000
+    cs = min(round((max(0, total_ms) % 1000) / 10), 99)
+    return f"<{mm:02d}:{ss:02d}.{cs:02d}>"
 
-    Assumes the normal line-sync time tags are already stripped.
+
+@dataclass(frozen=True)
+class LrcWordSegment:
+    text: str
+    time_ms: Optional[int] = None
+    duration_ms: Optional[int] = None
+
+
+class BaseLine(ABC):
+    """Common line interface for rendering and text extraction."""
+
+    @property
+    @abstractmethod
+    def text(self) -> str:
+        """Return plain text content for this line."""
+
+    @abstractmethod
+    def to_text(self, include_word_sync: bool) -> str:
+        """Return full serialized line text."""
+
+    @abstractmethod
+    def to_plain_unsynced(self) -> Optional[str]:
+        """Return this line's plain-text contribution in unsynced mode."""
+
+    @abstractmethod
+    def timed_plain_entries(self) -> list[tuple[int, str]]:
+        """Return (timestamp_ms, text) entries for synced plain-mode output."""
+
+    def has_nonzero_timestamp(self) -> bool:
+        return any(ts > 0 for ts, _ in self.timed_plain_entries())
+
+
+@dataclass
+class DocTagLine(BaseLine):
+    """Represents a single doc tag line like [ar:Artist]."""
+
+    key: str
+    value: str
+
+    @property
+    def text(self) -> str:
+        return f"[{self.key}:{self.value}]"
+
+    def to_text(self, include_word_sync: bool) -> str:
+        return self.text
+
+    def to_plain_unsynced(self) -> Optional[str]:
+        return None
+
+    def timed_plain_entries(self) -> list[tuple[int, str]]:
+        return []
+
+
+@dataclass
+class LyricLine(BaseLine):
+    """Lyric line with optional line-level timestamps."""
+
+    line_times_ms: list[int] = field(default_factory=list)
+    words: list[LrcWordSegment] = field(default_factory=list)
+
+    @property
+    def text(self) -> str:
+        return "".join(seg.text for seg in self.words)
+
+    def to_text(self, include_word_sync: bool) -> str:
+        prefix = "".join(_ms_to_std_tag(ms) for ms in self.line_times_ms)
+        return prefix + self.text
+
+    def to_plain_unsynced(self) -> Optional[str]:
+        return _remove_pattern(self.text, _LINE_START_TAGS_RE)
+
+    def timed_plain_entries(self) -> list[tuple[int, str]]:
+        return [(tag_ms, self.text) for tag_ms in self.line_times_ms]
+
+
+@dataclass
+class WordSyncLyricLine(LyricLine):
+    """Lyric line that can render per-word sync tags when requested."""
+
+    def to_text(self, include_word_sync: bool) -> str:
+        prefix = "".join(_ms_to_std_tag(ms) for ms in self.line_times_ms)
+        if not include_word_sync:
+            return prefix + self.text
+        parts: list[str] = []
+        for seg in self.words:
+            if seg.time_ms is not None:
+                parts.append(_ms_to_word_tag(seg.time_ms))
+            parts.append(seg.text)
+        return prefix + "".join(parts)
+
+
+def _split_trimmed_lines(text: str) -> list[str]:
+    """Split text into lines, strip each line, and drop outer blank lines."""
+
+    lines = [line.strip() for line in text.splitlines()]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return lines
+
+
+def _extract_leading_line_tags(line: str) -> tuple[list[int], str]:
+    """Parse leading line-sync tags and return (times_ms, lyric_part).
+
+    Spaces between consecutive leading tags are dropped. If non-space text
+    appears, parsing of leading tags stops and the remainder is lyric text.
     """
-    return _remove_pattern(text, _WORD_SYNC_TAG_RE)
+    pos = 0
+    tags_ms: list[int] = []
+    while True:
+        m = _RAW_TAG_RE.match(line, pos)
+        if not m:
+            break
+        tags_ms.append(_raw_tag_to_ms(m.group(1), m.group(2), m.group(3)))
+        pos = m.end()
+
+        # Allow spaces only between consecutive leading tags.
+        # We only check for '[' here; the next loop decides whether it is a valid time tag.
+        scan = pos
+        while scan < len(line) and line[scan].isspace():
+            scan += 1
+        if scan < len(line) and line[scan] == "[":
+            pos = scan
+            continue
+        pos = scan
+        break
+    return tags_ms, line[pos:]
 
 
-def _reformat(text: str) -> list[str]:
-    """Parse each line and reformat to standard [mm:ss.cc]...content form.
+def _parse_word_segments(lyric_part: str) -> tuple[list[LrcWordSegment], bool]:
+    """Parse timed word-sync tags while preserving all lyric text exactly."""
+    segments: list[LrcWordSegment] = []
+    cursor = 0
+    current_time: Optional[int] = None
+    has_word_sync = False
 
-    Handles any mix of time tag formats on input. Lines with no time tags
-    are stripped of leading/trailing whitespace and passed through unchanged.
-    """
-    out: list[str] = []
-    for line in text.splitlines():
-        line = line.strip()
-        pos = 0
-        tags: list[str] = []
-        while True:
-            while pos < len(line) and line[pos].isspace():
-                pos += 1
-            m = _RAW_TAG_RE.match(line, pos)
-            # Non-time tags are passed through as-is, except for leading/trailing whitespace which is stripped.
-            if not m:
-                # No more tags on this line
-                break
-            tags.append(_raw_tag_to_cs(m.group(1), m.group(2), m.group(3)))
-            pos = m.end()
-        if tags:
-            # This could break lyric lines of some kind of word-synced LRC format, e.g.
-            #   [00:01.00]Lyric [00:02.00]line
-            # but such format were not planned to be supported in the first place, so…
-            out.append(_sanitize_lyric_text("".join(tags) + line[pos:]))
-        else:
-            out.append(line)
-            # Empty lines with no tags are also preserved
+    for m in _WORD_SYNC_TAG_RE.finditer(lyric_part):
+        piece = lyric_part[cursor : m.start()]
+        if piece:
+            segments.append(LrcWordSegment(text=piece, time_ms=current_time))
+        current_time = _raw_tag_to_ms(m.group(1), m.group(2), m.group(3))
+        has_word_sync = True
+        cursor = m.end()
 
-    # Remove empty lines at the start and end of the whole text, but preserve blank lines in the middle
-    while out and not out[0].strip():
-        out.pop(0)
-    while out and not out[-1].strip():
-        out.pop()
+    tail = lyric_part[cursor:]
+    if tail or not segments:
+        segments.append(
+            LrcWordSegment(
+                text=tail,
+                time_ms=current_time if has_word_sync else None,
+            )
+        )
+    return segments, has_word_sync
 
-    return out
+
+def _is_single_doc_tag_line(line: str) -> Optional[tuple[str, str]]:
+    """Return (key, value) only for standalone single doc-tag lines."""
+
+    if _RAW_TAG_RE.fullmatch(line):
+        return None
+    m = _DOC_TAG_RE.fullmatch(line)
+    if not m:
+        return None
+    key = m.group(1).strip()
+    value = m.group(2).strip()
+    return key, value
 
 
 class LRCData:
-    _lines: list[str]
+    _lines: list[BaseLine]
+    _doc_tags: dict[str, str]
 
-    def __init__(self, text: str | None = None) -> None:
+    def __init__(self, text: Optional[str] = None) -> None:
+        self._doc_tags = {}
         if not text:
             self._lines = []
             return
-        self._lines = _reformat(text)
-        self._apply_offset()
+
+        raw_lines = _split_trimmed_lines(text)
+        parsed: list[BaseLine] = []
+
+        for raw in raw_lines:
+            maybe_tag = _is_single_doc_tag_line(raw)
+            if maybe_tag is not None:
+                key, value = maybe_tag
+                self._doc_tags[key] = value
+                parsed.append(DocTagLine(key=key, value=value))
+                continue
+
+            tags_ms, lyric_part = _extract_leading_line_tags(raw)
+            words, has_word_sync = _parse_word_segments(lyric_part if tags_ms else raw)
+
+            if has_word_sync:
+                parsed.append(WordSyncLyricLine(line_times_ms=tags_ms, words=words))
+            else:
+                parsed.append(LyricLine(line_times_ms=tags_ms, words=words))
+
+        self._lines = parsed
 
     def __str__(self) -> str:
-        return "\n".join(self._lines)
+        return self.to_text(plain=False, include_word_sync=False)
 
     def __repr__(self) -> str:
-        return f"LRCData(lines={self._lines!r})"
-
-    def __bool__(self) -> bool:
-        return len(self._lines) > 0
+        return f"LRCData(doc_tags={self._doc_tags!r}, lines={self._lines!r})"
 
     def __len__(self) -> int:
         return len(self._lines)
 
-    def _apply_offset(self):
-        """Parse [offset:±ms] and shift all standard [mm:ss.cc] tags accordingly.
+    @property
+    def tags(self) -> dict[str, str]:
+        return self._doc_tags
 
-        Per LRC spec, positive offset = lyrics appear sooner (subtract from timestamps).
-        """
-        m: Optional[re.Match] = None
-        for i, line in enumerate(self._lines):
-            m = _OFFSET_RE.search(line)
-            if m:
-                self._lines.pop(i)
-                break
-        if not m:
-            return
-        offset_ms = int(m.group(1))
-        if offset_ms == 0:
-            return
-
-        def _shift(match: re.Match) -> str:
-            total_ms = max(
-                0,
-                (int(match.group(1)) * 60 + int(match.group(2))) * 1000
-                + int(match.group(3)) * 10
-                - offset_ms,
-            )
-            new_mm = total_ms // 60000
-            new_ss = (total_ms % 60000) // 1000
-            new_cs = min(round((total_ms % 1000) / 10), 99)
-            return f"[{new_mm:02d}:{new_ss:02d}.{new_cs:02d}]"
-
-        self._lines = [_STD_TAG_CAPTURE_RE.sub(_shift, line) for line in self._lines]
+    @property
+    def lines(self) -> list[BaseLine]:
+        return self._lines
 
     def is_synced(self) -> bool:
-        """Check whether text contains non-zero LRC time tags.
-
-        Assumes text has been normalized by normalize (standard [mm:ss.cc] format).
-        """
-        for line in self._lines:
-            for m in _STD_TAG_CAPTURE_RE.finditer(line):
-                if m.group(1) != "00" or m.group(2) != "00" or m.group(3) != "00":
-                    return True
-        return False
+        """Return True if any lyric line contains a non-zero line timestamp."""
+        return any(line.has_nonzero_timestamp() for line in self._lines)
 
     def detect_sync_status(self) -> CacheStatus:
-        """Determine whether lyrics contain meaningful LRC time tags.
-
-        Assumes text has been normalized by normalize.
-        """
+        """Map sync detection result to cache status."""
         return (
             CacheStatus.SUCCESS_SYNCED
             if self.is_synced()
             else CacheStatus.SUCCESS_UNSYNCED
         )
 
-    def normalize_unsynced(self):
-        """Normalize unsynced lyrics so every line has a [00:00.00] tag.
+    def normalize_unsynced(self) -> "LRCData":
+        """Convert lyrics into unsynced LRC form with [00:00.00] tags.
 
-        Assumes lyrics have been normalized by normalize.
-        - Lines that already have time tags: replace with [00:00.00]
-        - Lines without leading tags: prepend [00:00.00]
-        - Blank lines in middle are converted to [00:00.00]
+        - Leading blank lyric lines are skipped.
+        - Middle blank lyric lines are preserved as empty synced lines.
+        - Doc-tag lines are preserved unchanged.
         """
-        out: list[str] = []
+        out: list[BaseLine] = []
         first = True
-        for i, line in enumerate(self._lines):
-            stripped = line.strip()
+        for line in self._lines:
+            if isinstance(line, DocTagLine):
+                out.append(DocTagLine(key=line.key, value=line.value))
+                continue
+
+            assert isinstance(line, LyricLine)
+
+            stripped = line.text.strip()
             if not stripped and not first:
-                out.append("[00:00.00]")
+                out.append(
+                    LyricLine(line_times_ms=[0], words=[LrcWordSegment(text="")])
+                )
                 continue
             elif not stripped:
-                # Skip leading blank lines
                 continue
             first = False
-            cleaned = _remove_pattern(line, _LINE_START_STD_TAGS_RE)
-            out.append(f"[00:00.00]{cleaned}")
+            out.append(
+                LyricLine(
+                    line_times_ms=[0],
+                    words=[LrcWordSegment(text=line.text)],
+                )
+            )
         ret = LRCData()
         ret._lines = out
+        ret._doc_tags = dict(self._doc_tags)
         return ret
 
     def to_plain(
@@ -230,32 +335,22 @@ class LRCData:
     ) -> str:
         """Convert lyrics to plain text with all tags stripped.
 
-        If deduplicate is True, only keep the first line of consecutive lines with the same lyric text (after stripping tags).
-        Otherwise, lines with multiple time tags will be duplicated as many times as the number of tags.
-        Assumes text has been normalized by normalize.
+        If synced, output is sorted by line timestamp and duplicated for multi-tag lines.
+        If not synced, leading bracket tags are stripped per line and original order is kept.
+        If deduplicate is True, only consecutive duplicate plain lines are collapsed.
         """
 
         if not self.is_synced():
-            return "\n".join(
-                _remove_pattern(line, _LINE_START_TAGS_RE) for line in self._lines
-            ).strip("\n")
+            plain_lines = [
+                text
+                for text in (line.to_plain_unsynced() for line in self._lines)
+                if text is not None
+            ]
+            return "\n".join(plain_lines).strip("\n")
 
-        tagged_lines = []
+        tagged_lines: list[tuple[int, str]] = []
         for line in self._lines:
-            pos = 0
-            tag_ms = []
-            while True:
-                # Only match strictly repeated standard time tags at the start of the line
-                # Lines without any time tags are ignored.
-                # Lyric lines are considered already stripped of whitespaces, so no strips here.
-                m = _STD_TAG_CAPTURE_RE.match(line, pos)
-                if not m:
-                    lyric = line[pos:]
-                    for tag in tag_ms:
-                        tagged_lines.append((tag, lyric))
-                    break
-                tag_ms.append(_raw_tag_to_ms(m.group(1), m.group(2), m.group(3)))
-                pos = m.end()
+            tagged_lines.extend(line.timed_plain_entries())
 
         sorted_lines = [lyric for _, lyric in sorted(tagged_lines, key=lambda x: x[0])]
 
@@ -271,23 +366,27 @@ class LRCData:
 
         return "\n".join(sorted_lines).strip()
 
-    def to_unsynced(self):
+    def to_unsynced(self) -> "LRCData":
+        """Return a plain-text based unsynced representation."""
         return LRCData(self.to_plain())
 
-    def to_lrc(
+    def to_text(
         self,
         plain: bool = False,
+        include_word_sync: bool = False,
     ) -> str:
-        """Return lyrics, optionally stripping tags.
+        """Serialize to LRC text or plain text.
 
-        Assumes text has been normalized by normalize.
+        - plain=True returns to_plain().
+        - include_word_sync controls rendering of per-word tags for word-sync lines.
         """
-        ret = self
-        if not self.is_synced():
-            ret = self.normalize_unsynced()
         if plain:
-            return ret.to_plain()
-        return "\n".join(ret._lines)
+            return self.to_plain(deduplicate=False)
+
+        lines: list[str] = [
+            line.to_text(include_word_sync=include_word_sync) for line in self._lines
+        ]
+        return "\n".join(lines)
 
 
 def get_audio_path(audio_url: str, ensure_exists: bool = False) -> Optional[Path]:

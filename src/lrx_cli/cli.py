@@ -123,7 +123,7 @@ def fetch(
         logger.error("No lyrics found.")
         sys.exit(1)
 
-    print(result.lyrics.to_lrc(plain=plain))
+    print(result.lyrics.to_text(plain=plain))
 
 
 # search
@@ -214,7 +214,7 @@ def search(
         logger.error("No lyrics found.")
         sys.exit(1)
 
-    print(result.lyrics.to_lrc(plain=plain))
+    print(result.lyrics.to_text(plain=plain))
 
 
 # export

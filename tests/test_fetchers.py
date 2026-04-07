@@ -80,7 +80,7 @@ def test_cache_search_fetcher_with_fuzzy_metadata(
 
     assert result is not None
     assert result.lyrics is not None
-    assert result.lyrics.to_lrc() == expected_lrc
+    assert result.lyrics.to_text() == expected_lrc
 
 
 def test_cache_search_fetcher_prefer_better_match(lrc_manager: LrcManager):
@@ -97,7 +97,7 @@ def test_cache_search_fetcher_prefer_better_match(lrc_manager: LrcManager):
 
     assert result is not None
     assert result.lyrics is not None
-    assert result.lyrics.to_lrc() == "[00:00.01]artist modified"
+    assert result.lyrics.to_text() == "[00:00.01]artist modified"
 
 
 @pytest.mark.network
