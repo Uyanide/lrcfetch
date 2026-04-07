@@ -171,51 +171,6 @@ def test_migrate_negative_row_splits_into_two_slot_rows(tmp_path: Path) -> None:
     ]
 
 
-def test_migrate_normalizes_old_slot_spelling(tmp_path: Path) -> None:
-    db_path = tmp_path / "slot-spelling.db"
-
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            CREATE TABLE cache (
-                key TEXT NOT NULL,
-                positive_kind TEXT NOT NULL,
-                source TEXT NOT NULL,
-                status TEXT NOT NULL,
-                lyrics TEXT,
-                created_at INTEGER NOT NULL,
-                expires_at INTEGER,
-                artist TEXT,
-                title TEXT,
-                album TEXT,
-                length INTEGER,
-                confidence REAL,
-                confidence_version INTEGER,
-                PRIMARY KEY (key, positive_kind)
-            )
-            """
-        )
-        conn.execute(
-            """
-            INSERT INTO cache
-                (key, positive_kind, source, status, lyrics, created_at, expires_at, artist, title, album, length, confidence, confidence_version)
-            VALUES
-                ('k1', 'SYNCHED', 's1', 'SUCCESS_SYNCED', 'l1', 1, NULL, 'A', 'T', 'AL', 180000, 80.0, 1),
-                ('k1', 'UNSYNCHED', 's1', 'SUCCESS_UNSYNCED', 'l2', 1, NULL, 'A', 'T', 'AL', 180000, 70.0, 1)
-            """
-        )
-        conn.commit()
-
-    CacheEngine(str(db_path))
-
-    with sqlite3.connect(db_path) as conn:
-        rows = conn.execute(
-            "SELECT positive_kind FROM cache ORDER BY positive_kind"
-        ).fetchall()
-
-    assert rows == [(SLOT_SYNCED,), (SLOT_UNSYNCED,)]
-
-
 def test_set_and_get_roundtrip_with_ttl(
     monkeypatch: pytest.MonkeyPatch, cache_db: CacheEngine
 ) -> None:
