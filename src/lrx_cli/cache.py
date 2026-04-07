@@ -29,7 +29,7 @@ _ALL_SLOTS = (SLOT_SYNCED, SLOT_UNSYNCED)
 
 
 # Fixed WHERE clause for exact track matching. Column names are hardcoded
-# literals; only the *values* come from user-supplied params — no injection risk.
+# literals; only the values come from user-supplied params — no injection risk.
 _TRACK_WHERE = (
     "(? IS NULL OR artist = ?) AND "
     "(? IS NULL OR title = ?) AND "
@@ -249,7 +249,7 @@ class CacheEngine:
     # Read
 
     def get_all(self, track: TrackMeta, source: str) -> list[LyricResult]:
-        """Return all non-expired cached slot rows for *track*/*source*."""
+        """Return all non-expired cached slot rows for track/source."""
         try:
             key = _generate_key(track, source)
         except ValueError:
@@ -430,7 +430,7 @@ class CacheEngine:
     def find_best_positive(
         self, track: TrackMeta, status: CacheStatus
     ) -> Optional[LyricResult]:
-        """Find the best positive (synced/unsynced) cache entry for *track*.
+        """Find the best positive (synced/unsynced) cache entry for track.
 
         Uses exact metadata match (artist + title + album) across all sources.
         Returns the highest-confidence entry, or None.
@@ -488,7 +488,7 @@ class CacheEngine:
         making hard artist filtering unreliable for cross-language queries.
 
         Ignores artist, album and source. Only returns positive results
-        (synced/unsynced) that have not expired. When *length* is provided,
+        (synced/unsynced) that have not expired. When length is provided,
         filters by duration tolerance and sorts by closest match.
         """
         if not title:
@@ -551,7 +551,7 @@ class CacheEngine:
         confidence: float,
         source: str,
     ) -> int:
-        """Update confidence for a specific source's cache entry matching *track*.
+        """Update confidence for a specific source's cache entry matching track.
 
         Returns the number of rows updated.
         """

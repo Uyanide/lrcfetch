@@ -275,7 +275,7 @@ class LrcManager:
         bypass_cache: bool = False,
         allow_unsynced: bool = False,
     ) -> Optional[LyricResult]:
-        """Fetch lyrics for *track* using the group-based parallel pipeline."""
+        """Fetch lyrics for track using the group-based parallel pipeline."""
         return asyncio.run(
             self._fetch_for_track(
                 track,

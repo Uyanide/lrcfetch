@@ -21,7 +21,7 @@ def is_better_result(
     *,
     allow_unsynced: bool,
 ) -> bool:
-    """Return True when *new* should rank above *old*.
+    """Return True when new should rank above old.
 
     Ordering rules (highest first):
     1) Positive statuses always beat negative statuses.
