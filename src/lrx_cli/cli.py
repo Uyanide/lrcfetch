@@ -99,7 +99,17 @@ def fetch(
     plain: Annotated[
         bool,
         cyclopts.Parameter(
-            name="--plain", negative="", help="Output only the raw lyrics without tags."
+            name="--plain",
+            negative="",
+            help="Output only plain lyrics without tags (highest priority over --normalize).",
+        ),
+    ] = False,
+    normalize: Annotated[
+        bool,
+        cyclopts.Parameter(
+            name="--normalize",
+            negative="",
+            help="Output normalized LRC (ignored when --plain is also set).",
         ),
     ] = False,
 ):
@@ -123,7 +133,12 @@ def fetch(
         logger.error("No lyrics found.")
         sys.exit(1)
 
-    print(result.lyrics.to_text(plain=plain))
+    if plain:
+        print(result.lyrics.to_plain())
+    elif normalize:
+        print(result.lyrics.to_normalized_text())
+    else:
+        print(result.lyrics.to_text())
 
 
 # search
@@ -179,7 +194,17 @@ def search(
     plain: Annotated[
         bool,
         cyclopts.Parameter(
-            name="--plain", negative="", help="Output only the raw lyrics without tags."
+            name="--plain",
+            negative="",
+            help="Output only plain lyrics without tags (highest priority over --normalize).",
+        ),
+    ] = False,
+    normalize: Annotated[
+        bool,
+        cyclopts.Parameter(
+            name="--normalize",
+            negative="",
+            help="Output normalized LRC (ignored when --plain is also set).",
         ),
     ] = False,
 ):
@@ -214,7 +239,12 @@ def search(
         logger.error("No lyrics found.")
         sys.exit(1)
 
-    print(result.lyrics.to_text(plain=plain))
+    if plain:
+        print(result.lyrics.to_plain())
+    elif normalize:
+        print(result.lyrics.to_normalized_text())
+    else:
+        print(result.lyrics.to_text())
 
 
 # export
@@ -253,7 +283,17 @@ def export(
     plain: Annotated[
         bool,
         cyclopts.Parameter(
-            name="--plain", negative="", help="Export only the raw lyrics without tags."
+            name="--plain",
+            negative="",
+            help="Export only plain lyrics (.txt, highest priority over --normalize).",
+        ),
+    ] = False,
+    normalize: Annotated[
+        bool,
+        cyclopts.Parameter(
+            name="--normalize",
+            negative="",
+            help="Export normalized LRC output (ignored when --plain is also set).",
         ),
     ] = False,
 ):
@@ -307,8 +347,10 @@ def export(
         with open(output, "w", encoding="utf-8") as f:
             if plain:
                 f.write(result.lyrics.to_plain())
+            elif normalize:
+                f.write(result.lyrics.to_normalized_text())
             else:
-                f.write(str(result.lyrics))
+                f.write(result.lyrics.to_text())
         logger.info(f"Exported lyrics to {output}")
     except Exception as e:
         logger.error(f"Failed to write file: {e}")

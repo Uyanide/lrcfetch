@@ -149,6 +149,83 @@ def test_normalize_unsynced_result_is_always_unsynced() -> None:
     assert normalized.detect_sync_status() is CacheStatus.SUCCESS_UNSYNCED
 
 
+def test_normalize_moves_doc_tags_to_top_and_removes_offset_tag() -> None:
+    text = "\n".join(
+        [
+            "[00:02.00]b",
+            "[ar:Artist]",
+            "[offset:500]",
+            "[00:01.00]a",
+            "[ti:Song]",
+        ]
+    )
+
+    normalized = LRCData(text).to_normalized_text()
+
+    assert normalized == "\n".join(
+        [
+            "[ar:Artist]",
+            "[ti:Song]",
+            "[00:01.50]a",
+            "[00:02.50]b",
+        ]
+    )
+
+
+def test_normalize_expands_multi_time_tags_and_sorts_lyrics() -> None:
+    text = "\n".join(
+        [
+            "[00:03.00]c",
+            "[00:02.00][00:01.00]x",
+        ]
+    )
+
+    normalized = LRCData(text).to_normalized_text()
+
+    assert normalized == "\n".join(["[00:01.00]x", "[00:02.00]x", "[00:03.00]c"])
+
+
+def test_normalize_converts_unsynced_lines_and_removes_word_sync_tags() -> None:
+    text = "\n".join(
+        [
+            "plain",
+            "<00:01.00>he <00:01.50>llo",
+            "[00:02.00]<00:02.20>world",
+            "",
+        ]
+    )
+
+    normalized = LRCData(text).to_normalized_text()
+
+    assert normalized == "\n".join(
+        [
+            "[00:00.00]plain",
+            "[00:00.00]he llo",
+            "[00:02.00]world",
+        ]
+    )
+
+
+def test_to_normalized_text_is_separate_from_plain() -> None:
+    data = LRCData("[offset:500]\n[00:02.00]b\n[00:01.00]a")
+
+    assert data.to_plain() == "a\nb"
+    assert data.to_normalized_text() == "[00:01.50]a\n[00:02.50]b"
+
+
+def test_to_text_default_forces_unsynced_tagging() -> None:
+    data = LRCData("line\nother")
+
+    assert data.to_text() == "[00:00.00]line\n[00:00.00]other"
+
+
+def test_str_keeps_raw_unsynced_while_to_text_adds_unsynced_tags() -> None:
+    data = LRCData("line\nother")
+
+    assert str(data) == "line\nother"
+    assert data.to_text() == "[00:00.00]line\n[00:00.00]other"
+
+
 def test_to_plain_duplicates_lines_for_multi_line_times() -> None:
     text = "\n".join(
         [
@@ -288,6 +365,40 @@ def test_word_sync_markup_only_changes_output_when_enabled() -> None:
     assert b.to_text(include_word_sync=True) == "[00:01.00]lyric"
 
 
+def test_str_preserves_word_sync_markup() -> None:
+    data = LRCData("[00:01.00]<00:00.50>lyric")
+
+    assert str(data) == "[00:01.00]<00:00.50>lyric"
+    assert data.to_text(include_word_sync=False) == "[00:01.00]lyric"
+
+
+def test_str_preserves_offset_tag_and_does_not_apply_it() -> None:
+    data = LRCData("[offset:500]\n[00:01.00]a")
+
+    assert str(data) == "[offset:500]\n[00:01.00]a"
+    assert data.to_normalized_text() == "[00:01.50]a"
+
+
+def test_str_preserves_doc_tag_order_and_duplicates_exactly() -> None:
+    data = LRCData("[ar:First]\n[ti:Song]\n[ar:Second]\n[00:01.00]line")
+
+    assert str(data) == "[ar:First]\n[ti:Song]\n[ar:Second]\n[00:01.00]line"
+
+
+def test_str_does_not_expand_or_sort_multi_time_lines() -> None:
+    data = LRCData("[00:03.00]c\n[00:02.00][00:01.00]x")
+
+    assert str(data) == "[00:03.00]c\n[00:02.00][00:01.00]x"
+    assert data.to_normalized_text() == "[00:01.00]x\n[00:02.00]x\n[00:03.00]c"
+
+
+def test_str_preserves_plain_text_lines_without_injecting_time_tags() -> None:
+    data = LRCData("plain line\n[ar:Artist]\nother line")
+
+    assert str(data) == "plain line\n[ar:Artist]\nother line"
+    assert data.to_text() == "[00:00.00]plain line\n[ar:Artist]\n[00:00.00]other line"
+
+
 def test_word_sync_line_with_empty_tail_keeps_word_tag_only_when_enabled() -> None:
     data = LRCData("[00:01.00]<00:02.00>")
 
@@ -295,10 +406,10 @@ def test_word_sync_line_with_empty_tail_keeps_word_tag_only_when_enabled() -> No
     assert data.to_text(include_word_sync=True) == "[00:01.00]<00:02.00>"
 
 
-def test_to_text_plain_true_matches_to_plain_output() -> None:
+def test_to_plain_outputs_sorted_plain_text() -> None:
     data = LRCData("[00:02.00]b\n[00:01.00]a")
 
-    assert data.to_text(plain=True) == data.to_plain()
+    assert data.to_plain() == "a\nb"
 
 
 def test_duplicate_doc_tag_key_last_value_wins_but_lines_are_kept() -> None:

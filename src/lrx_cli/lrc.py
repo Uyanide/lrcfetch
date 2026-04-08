@@ -233,6 +233,14 @@ def _is_single_doc_tag_line(line: str) -> Optional[tuple[str, str]]:
     return key, value
 
 
+def _parse_offset_value(value: str) -> Optional[int]:
+    """Parse doc offset value in milliseconds, returning None for invalid values."""
+    try:
+        return int(value.strip())
+    except ValueError:
+        return None
+
+
 class LRCData:
     _lines: list[BaseLine]
     _doc_tags: dict[str, str]
@@ -265,7 +273,7 @@ class LRCData:
         self._lines = parsed
 
     def __str__(self) -> str:
-        return self.to_text(plain=False, include_word_sync=False)
+        return self._serialize_lines(self._lines, include_word_sync=True)
 
     def __repr__(self) -> str:
         return f"LRCData(doc_tags={self._doc_tags!r}, lines={self._lines!r})"
@@ -293,7 +301,7 @@ class LRCData:
             else CacheStatus.SUCCESS_UNSYNCED
         )
 
-    def normalize_unsynced(self):
+    def normalize_unsynced(self) -> "LRCData":
         """Convert lyrics into unsynced LRC form with [00:00.00] tags.
 
         - Leading blank lyric lines are skipped.
@@ -327,6 +335,59 @@ class LRCData:
         ret = LRCData()
         ret._lines = out
         ret._doc_tags = dict(self._doc_tags)
+        return ret
+
+    def normalize(self) -> "LRCData":
+        """Normalize LRC for decode/export oriented output.
+
+        Rules:
+        - Move all doc tags to the beginning, preserving line order and duplicates.
+        - Keep doc tags unchanged except removing all offset tags.
+        - Remove word-sync tags.
+        - Convert untagged non-empty lyric lines to [00:00.00] lyrics.
+        - Drop empty lyric lines.
+        - Expand lyric lines with multiple time tags into one line per tag.
+        - Apply offset (ms) to lyric timestamps and sort by timestamp.
+        """
+        out_doc_tags: list[DocTagLine] = []
+        lyric_entries: list[tuple[int, str]] = []
+        offset_ms = 0
+
+        # Resolve offset first so it applies to all lyric lines, independent of tag position.
+        for line in self._lines:
+            if isinstance(line, DocTagLine) and line.key.strip().lower() == "offset":
+                parsed_offset = _parse_offset_value(line.value)
+                if parsed_offset is not None:
+                    offset_ms = parsed_offset
+
+        for line in self._lines:
+            if isinstance(line, DocTagLine):
+                if line.key.strip().lower() == "offset":
+                    continue
+                out_doc_tags.append(DocTagLine(key=line.key, value=line.value))
+                continue
+
+            assert isinstance(line, LyricLine)
+
+            lyric_text = line.text
+            if not lyric_text.strip():
+                continue
+
+            line_times = line.line_times_ms if line.line_times_ms else [0]
+            for time_ms in line_times:
+                shifted = max(0, time_ms + offset_ms)
+                lyric_entries.append((shifted, lyric_text))
+
+        lyric_entries.sort(key=lambda item: item[0])
+
+        out_lyrics: list[LyricLine] = [
+            LyricLine(line_times_ms=[time_ms], words=[LrcWordSegment(text=text)])
+            for time_ms, text in lyric_entries
+        ]
+
+        ret = LRCData()
+        ret._lines = [*out_doc_tags, *out_lyrics]
+        ret._doc_tags = {line.key: line.value for line in out_doc_tags}
         return ret
 
     def to_plain(
@@ -366,23 +427,32 @@ class LRCData:
 
         return "\n".join(sorted_lines).strip()
 
+    @staticmethod
+    def _serialize_lines(lines: list[BaseLine], include_word_sync: bool) -> str:
+        return "\n".join(
+            line.to_text(include_word_sync=include_word_sync) for line in lines
+        )
+
     def to_text(
         self,
-        plain: bool = False,
         include_word_sync: bool = False,
     ) -> str:
-        """Serialize to LRC text or plain text.
+        """Serialize to non-normalized LRC text.
 
-        - plain=True returns to_plain().
-        - include_word_sync controls rendering of per-word tags for word-sync lines.
+        - Unsynced lyrics are converted to [00:00.00]-tagged form.
+        - include_word_sync only controls rendering of per-word tags.
+        - This method does not apply normalize() rules.
         """
-        if plain:
-            return self.to_plain(deduplicate=False)
+        res = self if self.is_synced() else self.normalize_unsynced()
+        return self._serialize_lines(res._lines, include_word_sync=include_word_sync)
 
-        lines: list[str] = [
-            line.to_text(include_word_sync=include_word_sync) for line in self._lines
-        ]
-        return "\n".join(lines)
+    def to_normalized_text(self) -> str:
+        """Serialize using normalize() rules.
+
+        Normalized output always strips word-sync tags.
+        """
+        normalized = self.normalize()
+        return self._serialize_lines(normalized._lines, include_word_sync=False)
 
 
 def get_audio_path(audio_url: str, ensure_exists: bool = False) -> Optional[Path]:
