@@ -301,14 +301,6 @@ def test_to_text_plain_true_matches_to_plain_output() -> None:
     assert data.to_text(plain=True) == data.to_plain()
 
 
-def test_to_unsynced_converts_to_plain_based_unsynced_data() -> None:
-    data = LRCData("[ar:Artist]\n[00:02.00]b\n[00:01.00]a")
-
-    unsynced = data.to_unsynced()
-
-    assert str(unsynced) == "a\nb"
-
-
 def test_duplicate_doc_tag_key_last_value_wins_but_lines_are_kept() -> None:
     data = LRCData("[ar:First]\n[ar:Second]\n[00:01.00]line")
 

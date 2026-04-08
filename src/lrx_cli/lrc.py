@@ -293,7 +293,7 @@ class LRCData:
             else CacheStatus.SUCCESS_UNSYNCED
         )
 
-    def normalize_unsynced(self) -> "LRCData":
+    def normalize_unsynced(self):
         """Convert lyrics into unsynced LRC form with [00:00.00] tags.
 
         - Leading blank lyric lines are skipped.
@@ -365,10 +365,6 @@ class LRCData:
             sorted_lines = deduped_lines
 
         return "\n".join(sorted_lines).strip()
-
-    def to_unsynced(self) -> "LRCData":
-        """Return a plain-text based unsynced representation."""
-        return LRCData(self.to_plain())
 
     def to_text(
         self,
