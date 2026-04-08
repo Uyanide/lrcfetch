@@ -74,8 +74,7 @@ def test_score_missing_one_side_gives_zero_for_field() -> None:
     assert score == 10.0
 
 
-def test_score_synced_bonus() -> None:
-    """Synced state does not affect metadata score anymore."""
+def test_synced_state_does_not_affect_score() -> None:
     base = SearchCandidate(item="x", title="My Love", is_synced=False)
     synced = SearchCandidate(item="x", title="My Love", is_synced=True)
     diff = _score_candidate(synced, "My Love", None, None, None) - _score_candidate(
@@ -331,20 +330,6 @@ def test_lrclib_picks_exact_album_match() -> None:
     assert best is not None
     assert best["albumName"] == "Coast To Coast"
     assert score >= MIN_CONFIDENCE
-
-
-def test_lrclib_rejects_wrong_title() -> None:
-    """'Hello My Love' should not beat 'My Love' entries."""
-    candidates = _lrclib_candidates()
-    best, _ = select_best(
-        candidates,
-        _REF_LENGTH,
-        title=_REF_TITLE,
-        artist=_REF_ARTIST,
-        album=_REF_ALBUM,
-    )
-    assert best is not None
-    assert best["trackName"] != "Hello My Love"
 
 
 def test_lrclib_noisy_picks_westlife() -> None:

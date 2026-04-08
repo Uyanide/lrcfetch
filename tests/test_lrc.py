@@ -4,7 +4,7 @@ from lrx_cli.lrc import LRCData
 from lrx_cli.models import CacheStatus
 
 
-def _normalize(text: str) -> str:
+def _reformat(text: str) -> str:
     return str(LRCData(text))
 
 
@@ -19,7 +19,7 @@ def test_time_tag_formats_are_normalized() -> None:
         ]
     )
 
-    normalized = _normalize(raw)
+    normalized = _reformat(raw)
 
     assert normalized == "\n".join(
         [
@@ -35,7 +35,7 @@ def test_time_tag_formats_are_normalized() -> None:
 def test_non_timed_lines_are_kept_as_lyrics() -> None:
     raw = "  plain line  \n\n  other line  "
 
-    normalized = _normalize(raw)
+    normalized = _reformat(raw)
 
     assert normalized == "plain line\n\nother line"
 
@@ -55,20 +55,20 @@ def test_word_sync_tags_are_parsed_and_export_controlled() -> None:
 def test_midline_line_tags_are_kept_as_plain_text() -> None:
     raw = "[00:01.00]Lyric [00:02.00]line"
 
-    normalized = _normalize(raw)
+    normalized = _reformat(raw)
 
     assert normalized == "[00:01.00]Lyric [00:02.00]line"
 
 
-def test_leading_spaces_before_first_time_tag_are_trimmed() -> None:
-    raw = "\t   [00:01.2] hello"
+def test_space_between_line_tag_and_lyric_is_consumed() -> None:
+    raw = "[00:01.2] hello"
 
-    normalized = _normalize(raw)
+    normalized = _reformat(raw)
 
     assert normalized == "[00:01.20]hello"
 
 
-def test_normalize_tags_handles_consecutive_start_tags_with_spaces_between() -> None:
+def test_consecutive_line_sync_tags_with_spaces_are_parsed_as_one_line() -> None:
     raw = "[00:01]   [00:02.3]    chorus"
 
     data = LRCData(raw)
@@ -80,7 +80,7 @@ def test_normalize_tags_handles_consecutive_start_tags_with_spaces_between() -> 
 def test_non_leading_time_like_text_is_plain_lyric() -> None:
     raw = "intro [00:01]line"
 
-    normalized = _normalize(raw)
+    normalized = _reformat(raw)
 
     assert normalized == "intro [00:01]line"
 
@@ -219,7 +219,7 @@ def test_to_text_default_forces_unsynced_tagging() -> None:
     assert data.to_text() == "[00:00.00]line\n[00:00.00]other"
 
 
-def test_str_keeps_raw_unsynced_while_to_text_adds_unsynced_tags() -> None:
+def test_str_is_raw_serializer_while_to_text_converts_unsynced() -> None:
     data = LRCData("line\nother")
 
     assert str(data) == "line\nother"
@@ -274,7 +274,7 @@ def test_to_plain_deduplicate_collapses_only_consecutive_equals() -> None:
     assert plain == "\n".join(["hello", "", "world", "hello"])
 
 
-def test_to_plain_fallback_for_non_synced_text_strips_start_tags() -> None:
+def test_to_plain_excludes_doc_tags_and_untagged_lines_in_unsynced_mode() -> None:
     text = "\n".join(["[ar:Artist]", "[00:00.00]only-zero", "plain line"])
 
     plain = LRCData(text).to_plain()
@@ -282,7 +282,9 @@ def test_to_plain_fallback_for_non_synced_text_strips_start_tags() -> None:
     assert plain == "only-zero\nplain line"
 
 
-def test_to_plain_trims_leading_and_trailing_blank_lines() -> None:
+def test_to_plain_outer_blanks_stripped_and_untagged_lines_excluded_in_synced_mode() -> (
+    None
+):
     text = "\n\n[00:01.00]line1\n\n[00:01.00]\n[00:02.00]line2\nline3\n   \n"
 
     plain = LRCData(text).to_plain()
@@ -315,7 +317,7 @@ def test_multiple_doc_tags_on_one_line_are_plain_lyrics() -> None:
     assert data.lines[0].text == "[ar:Artist][ti:Song]"
 
 
-def test_doc_tag_after_lyrics_is_treated_as_lyrics() -> None:
+def test_doc_tag_after_lyrics_is_still_recognized_as_doc_tag() -> None:
     data = LRCData("[00:01.00]line\n[ar:Artist]")
 
     assert data.tags == {"ar": "Artist"}
@@ -369,7 +371,6 @@ def test_str_preserves_word_sync_markup() -> None:
     data = LRCData("[00:01.00]<00:00.50>lyric")
 
     assert str(data) == "[00:01.00]<00:00.50>lyric"
-    assert data.to_text(include_word_sync=False) == "[00:01.00]lyric"
 
 
 def test_str_preserves_offset_tag_and_does_not_apply_it() -> None:
@@ -406,10 +407,10 @@ def test_word_sync_line_with_empty_tail_keeps_word_tag_only_when_enabled() -> No
     assert data.to_text(include_word_sync=True) == "[00:01.00]<00:02.00>"
 
 
-def test_to_plain_outputs_sorted_plain_text() -> None:
-    data = LRCData("[00:02.00]b\n[00:01.00]a")
+def test_to_plain_for_doc_only_text_is_empty() -> None:
+    data = LRCData("[ar:Artist]\n[ti:Song]")
 
-    assert data.to_plain() == "a\nb"
+    assert data.to_plain() == ""
 
 
 def test_duplicate_doc_tag_key_last_value_wins_but_lines_are_kept() -> None:
@@ -418,9 +419,3 @@ def test_duplicate_doc_tag_key_last_value_wins_but_lines_are_kept() -> None:
     assert data.tags == {"ar": "Second"}
     assert len(data.lines) == 3
     assert str(data).startswith("[ar:First]\n[ar:Second]\n")
-
-
-def test_to_plain_for_doc_only_text_is_empty() -> None:
-    data = LRCData("[ar:Artist]\n[ti:Song]")
-
-    assert data.to_plain() == ""

@@ -263,7 +263,7 @@ def test_get_backfills_missing_length_when_track_provides_it(
     assert row[0] == 200000
 
 
-def test_get_best_prefers_higher_confidence_and_skips_negative(
+def test_get_best_prefers_synced_and_skips_negative(
     cache_db: CacheEngine,
 ) -> None:
     track = _track()
