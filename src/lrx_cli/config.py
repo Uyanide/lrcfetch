@@ -34,7 +34,7 @@ HTTP_TIMEOUT = 10.0
 
 # Cache TTLs (seconds)
 TTL_SYNCED = None  # never expires
-TTL_UNSYNCED = 86400  # 1 day
+TTL_UNSYNCED = None  # never expires
 TTL_NOT_FOUND = 86400 * 3  # 3 days
 TTL_NETWORK_ERROR = 3600  # 1 hour
 
