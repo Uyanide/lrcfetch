@@ -378,7 +378,12 @@ class LRCData:
                 shifted = max(0, time_ms + offset_ms)
                 lyric_entries.append((shifted, lyric_text))
 
-        lyric_entries.sort(key=lambda item: item[0])
+        # Sort by timestamp; original index as tiebreaker so equal-time entries
+        # retain the order they appeared in the input.
+        lyric_entries = [
+            e
+            for _, e in sorted(enumerate(lyric_entries), key=lambda x: (x[1][0], x[0]))
+        ]
 
         out_lyrics: list[LyricLine] = [
             LyricLine(line_times_ms=[time_ms], words=[LrcWordSegment(text=text)])
@@ -413,7 +418,12 @@ class LRCData:
         for line in self._lines:
             tagged_lines.extend(line.timed_plain_entries())
 
-        sorted_lines = [lyric for _, lyric in sorted(tagged_lines, key=lambda x: x[0])]
+        sorted_lines = [
+            lyric
+            for _, (_, lyric) in sorted(
+                enumerate(tagged_lines), key=lambda x: (x[1][0], x[0])
+            )
+        ]
 
         if deduplicate:
             # Remove consecutive duplicates

@@ -185,6 +185,23 @@ def test_normalize_expands_multi_time_tags_and_sorts_lyrics() -> None:
     assert normalized == "\n".join(["[00:01.00]x", "[00:02.00]x", "[00:03.00]c"])
 
 
+def test_normalize_preserves_input_order_for_equal_timestamps() -> None:
+    text = "\n".join(
+        [
+            "[00:00.00]first",
+            "[00:00.00]second",
+            "[00:00.00]third",
+            "[00:01.00]later",
+        ]
+    )
+
+    normalized = LRCData(text).to_normalized_text()
+
+    assert normalized == "\n".join(
+        ["[00:00.00]first", "[00:00.00]second", "[00:00.00]third", "[00:01.00]later"]
+    )
+
+
 def test_normalize_converts_unsynced_lines_and_removes_word_sync_tags() -> None:
     text = "\n".join(
         [
@@ -255,6 +272,21 @@ def test_to_plain_sorts_lines_by_timestamp_across_lines() -> None:
     plain = LRCData(text).to_plain()
 
     assert plain == "\n".join(["early", "middle", "late"])
+
+
+def test_to_plain_preserves_input_order_for_equal_timestamps() -> None:
+    text = "\n".join(
+        [
+            "[00:00.00]first",
+            "[00:00.00]second",
+            "[00:00.00]third",
+            "[00:01.00]later",
+        ]
+    )
+
+    plain = LRCData(text).to_plain()
+
+    assert plain == "\n".join(["first", "second", "third", "later"])
 
 
 def test_to_plain_deduplicate_collapses_only_consecutive_equals() -> None:
