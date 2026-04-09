@@ -68,6 +68,17 @@ MUSIXMATCH_COOLDOWN_MS = 600_000  # 10 minutes
 
 # Player preference (used when multiple MPRIS players are active)
 PREFERRED_PLAYER = os.environ.get("PREFERRED_PLAYER", "spotify")
+PLAYER_BLACKLIST = [
+    s.strip() for s in os.environ.get("PLAYER_BLACKLIST", "").split(",") if s.strip()
+]
+
+# Watch mode
+WATCH_DEBOUNCE_MS = int(os.environ.get("WATCH_DEBOUNCE_MS", "400"))
+WATCH_CALIBRATION_INTERVAL_S = float(
+    os.environ.get("WATCH_CALIBRATION_INTERVAL_S", "3.0")
+)
+WATCH_POSITION_TICK_MS = int(os.environ.get("WATCH_POSITION_TICK_MS", "50"))
+WATCH_SOCKET_PATH = Path(CACHE_DIR) / "watch.sock"
 
 
 class _Credentials:

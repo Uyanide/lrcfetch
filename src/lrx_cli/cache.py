@@ -85,9 +85,15 @@ class CacheEngine:
         self.db_path = db_path
         self._init_db()
 
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        return conn
+
     def _init_db(self) -> None:
         """Create cache tables and run one-time slot/cache migrations."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS credentials (
                     name TEXT PRIMARY KEY,
@@ -256,7 +262,7 @@ class CacheEngine:
             return []
 
         now = int(time.time())
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.execute(
                 "DELETE FROM cache WHERE key = ? AND expires_at IS NOT NULL AND expires_at < ?",
                 (key, now),
@@ -353,7 +359,7 @@ class CacheEngine:
             # Convenience for callers that still pass a single negative result.
             kinds = [SLOT_SYNCED, SLOT_UNSYNCED]
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             for kind in kinds:
                 conn.execute(
                     """INSERT OR REPLACE INTO cache
@@ -386,7 +392,7 @@ class CacheEngine:
 
     def clear_all(self) -> None:
         """Remove every entry from the cache."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.execute("DELETE FROM cache")
             conn.commit()
         logger.info("Cache cleared.")
@@ -396,7 +402,7 @@ class CacheEngine:
         if not self._track_has_meta(track):
             logger.info(f"No cache entries found for {track.display_name()}.")
             return
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.execute(
                 f"DELETE FROM cache WHERE {_TRACK_WHERE}",
                 _track_where_params(track),
@@ -411,7 +417,7 @@ class CacheEngine:
 
     def prune(self) -> int:
         """Remove all expired entries. Returns the number of rows deleted."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.execute(
                 "DELETE FROM cache WHERE expires_at IS NOT NULL AND expires_at < ?",
                 (int(time.time()),),
@@ -439,7 +445,7 @@ class CacheEngine:
             return None
 
         now = int(time.time())
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 f"SELECT status, lyrics, source, confidence FROM cache"
@@ -495,7 +501,7 @@ class CacheEngine:
             return []
 
         now = int(time.time())
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """SELECT * FROM cache
@@ -557,7 +563,7 @@ class CacheEngine:
         """
         if not self._track_has_meta(track):
             return 0
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.execute(
                 f"UPDATE cache SET confidence = ? WHERE {_TRACK_WHERE} AND source = ?",
                 [confidence] + _track_where_params(track) + [source],
@@ -571,7 +577,7 @@ class CacheEngine:
         """Return all cached rows for a given track (across all sources)."""
         if not self._track_has_meta(track):
             return []
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             return [
                 dict(r)
@@ -586,7 +592,7 @@ class CacheEngine:
     def get_credential(self, name: str) -> Optional[dict]:
         """Return cached credential data if present and not expired."""
         now_ms = int(time.time() * 1000)
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
                 "SELECT data FROM credentials WHERE name = ? AND (expires_at IS NULL OR expires_at > ?)",
@@ -603,7 +609,7 @@ class CacheEngine:
         self, name: str, data: dict, expires_at_ms: Optional[int] = None
     ) -> None:
         """Persist credential data, optionally with an expiry timestamp (Unix ms)."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO credentials (name, data, expires_at) VALUES (?, ?, ?)",
                 (name, json.dumps(data), expires_at_ms),
@@ -612,14 +618,14 @@ class CacheEngine:
 
     def query_all(self) -> list[dict]:
         """Return every row in the cache table."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             return [dict(r) for r in conn.execute("SELECT * FROM cache").fetchall()]
 
     def stats(self) -> dict:
         """Return aggregate cache statistics."""
         now = int(time.time())
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             total = conn.execute("SELECT COUNT(*) FROM cache").fetchone()[0]
             expired = conn.execute(
                 "SELECT COUNT(*) FROM cache WHERE expires_at IS NOT NULL AND expires_at < ?",

@@ -7,18 +7,33 @@ Description: CLI interface.
 import sys
 import time
 import os
+import asyncio
+import json
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote
 import cyclopts
 from loguru import logger
 
-from .config import DB_PATH, enable_debug
+from .config import (
+    DB_PATH,
+    PLAYER_BLACKLIST,
+    PREFERRED_PLAYER,
+    WATCH_CALIBRATION_INTERVAL_S,
+    WATCH_DEBOUNCE_MS,
+    WATCH_POSITION_TICK_MS,
+    WATCH_SOCKET_PATH,
+    enable_debug,
+)
 from .models import TrackMeta
 from .mpris import get_current_track
 from .core import LrcManager
 from .fetchers import FetcherMethodType
 from .lrc import get_sidecar_path
+from .watch import WatchCoordinator
+from .watch.control import ControlClient, parse_delta
+from .watch.options import WatchOptions
+from .watch.view.pipe import PipeOutput
 
 
 app = cyclopts.App(
@@ -29,6 +44,12 @@ app.register_install_completion_command()
 cache_app = cyclopts.App(name="cache", help="Manage the local SQLite cache.")
 app.command(cache_app)
 
+watch_app = cyclopts.App(name="watch", help="Watch MPRIS and output lyrics.")
+app.command(watch_app)
+
+ctl_app = cyclopts.App(name="ctl", help="Control a running watch session.")
+watch_app.command(ctl_app)
+
 
 # Global state set by the meta launcher
 _player: str | None = None
@@ -36,6 +57,18 @@ _db_path: str | None = None
 
 # Will be initialized before any command runs, safe to set to None here
 manager: LrcManager = None  # type: ignore
+
+
+def _build_watch_options() -> WatchOptions:
+    """Build runtime watch options from CLI composition root."""
+    return WatchOptions(
+        preferred_player=PREFERRED_PLAYER,
+        player_blacklist=tuple(PLAYER_BLACKLIST),
+        debounce_ms=WATCH_DEBOUNCE_MS,
+        position_tick_ms=WATCH_POSITION_TICK_MS,
+        calibration_interval_s=WATCH_CALIBRATION_INTERVAL_S,
+        socket_path=WATCH_SOCKET_PATH,
+    )
 
 
 @app.meta.default
@@ -355,6 +388,74 @@ def export(
     except Exception as e:
         logger.error(f"Failed to write file: {e}")
         sys.exit(1)
+
+
+# watch subcommands
+
+
+@watch_app.command
+def pipe(
+    before: Annotated[
+        int,
+        cyclopts.Parameter(
+            name="--before",
+            help="Number of lyric lines to show before current line.",
+        ),
+    ] = 0,
+    after: Annotated[
+        int,
+        cyclopts.Parameter(
+            name="--after",
+            help="Number of lyric lines to show after current line.",
+        ),
+    ] = 0,
+):
+    """Watch active player and continuously print lyric window to stdout."""
+    logger.info(
+        "Starting watch pipe (player filter: {})",
+        _player or "<none>",
+    )
+    output = PipeOutput(before=max(0, before), after=max(0, after))
+    options = _build_watch_options()
+    try:
+        session = WatchCoordinator(
+            manager,
+            output,
+            player_hint=_player,
+            options=options,
+        )
+        success = asyncio.run(session.run())
+        if not success:
+            sys.exit(1)
+    except KeyboardInterrupt:
+        logger.info("Watch stopped.")
+
+
+@ctl_app.command
+def offset(delta: str) -> None:
+    """Adjust watch offset. Examples: +200, -200, 0."""
+    parsed_ok, parsed_delta, parse_error = parse_delta(delta)
+    if not parsed_ok or parsed_delta is None:
+        logger.error(parse_error or "Invalid offset delta")
+        sys.exit(1)
+
+    response = ControlClient(options=_build_watch_options()).send(
+        {"cmd": "offset", "delta": parsed_delta}
+    )
+    if not response.get("ok"):
+        logger.error(response.get("error", "Unknown error"))
+        sys.exit(1)
+    print(json.dumps(response, indent=2, ensure_ascii=False))
+
+
+@ctl_app.command
+def status() -> None:
+    """Print current watch session status as JSON."""
+    response = ControlClient(options=_build_watch_options()).send({"cmd": "status"})
+    if not response.get("ok"):
+        logger.error(response.get("error", "Unknown error"))
+        sys.exit(1)
+    print(json.dumps(response, indent=2, ensure_ascii=False))
 
 
 # cache subcommands
