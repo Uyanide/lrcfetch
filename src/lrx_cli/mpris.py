@@ -8,10 +8,11 @@ import asyncio
 from dbus_next.aio.message_bus import MessageBus
 from dbus_next.constants import BusType
 from dbus_next.message import Message
-from lrx_cli.config import DEFAULT_PLAYER_BLACKLIST, DEFAULT_PREFERRED_PLAYER
-from lrx_cli.models import TrackMeta
 from loguru import logger
 from typing import Optional, List, Any
+
+from .config import DEFAULT_PLAYER_BLACKLIST, DEFAULT_PREFERRED_PLAYER
+from .models import TrackMeta
 
 
 async def _list_mpris_players(
