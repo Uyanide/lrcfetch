@@ -16,7 +16,6 @@ from .selection import SearchCandidate, select_ranked
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..lrc import LRCData
 from ..config import (
-    HTTP_TIMEOUT,
     TTL_NOT_FOUND,
     MULTI_CANDIDATE_DELAY_S,
     UA_BROWSER,
@@ -49,7 +48,7 @@ class NeteaseFetcher(BaseFetcher):
         logger.debug(f"Netease: searching for '{query}' (limit={limit})")
 
         try:
-            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=self._general.http_timeout) as client:
                 resp = await client.post(
                     _NETEASE_SEARCH_URL,
                     headers=_NETEASE_BASE_HEADERS,
@@ -114,7 +113,7 @@ class NeteaseFetcher(BaseFetcher):
         logger.debug(f"Netease: fetching lyrics for song_id={song_id}")
 
         try:
-            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=self._general.http_timeout) as client:
                 resp = await client.post(
                     _NETEASE_LYRIC_URL,
                     headers=_NETEASE_BASE_HEADERS,

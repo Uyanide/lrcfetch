@@ -1,14 +1,18 @@
 """
 Author: Uyanide pywang0608@foxmail.com
 Date: 2026-03-25 10:17:56
-Description: Global configuration constants and logger setup.
+Description: Global configuration constants, typed config dataclasses, and logger setup.
 """
 
+import dataclasses
 import os
 import sys
+import tomllib
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, get_type_hints
+
 from platformdirs import user_cache_dir, user_config_dir
-from dotenv import load_dotenv
 from loguru import logger
 from importlib.metadata import version
 
@@ -24,13 +28,7 @@ DB_PATH = os.path.join(CACHE_DIR, "cache.db")
 SLOT_SYNCED = "SYNCED"
 SLOT_UNSYNCED = "UNSYNCED"
 
-# .env loading
-_config_env = Path(user_config_dir(APP_NAME, APP_AUTHOR)) / ".env"
-load_dotenv(_config_env)  # ~/.config/lrx-cli/.env
-load_dotenv()  # .env in cwd (does NOT override existing vars)
-
-# HTTP
-HTTP_TIMEOUT = 10.0
+_WATCH_SOCKET_PATH = str(Path(CACHE_DIR) / "watch.sock")
 
 # Cache TTLs (seconds)
 TTL_SYNCED = None  # never expires
@@ -66,47 +64,131 @@ UA_LRX = f"LRX-CLI {APP_VERSION} (https://github.com/Uyanide/lrx-cli)"
 
 MUSIXMATCH_COOLDOWN_MS = 600_000  # 10 minutes
 
-# Player preference (used when multiple MPRIS players are active)
-PREFERRED_PLAYER = os.environ.get("PREFERRED_PLAYER", "spotify")
-PLAYER_BLACKLIST = [
-    s.strip() for s in os.environ.get("PLAYER_BLACKLIST", "").split(",") if s.strip()
-]
-
-# Watch mode
-WATCH_DEBOUNCE_MS = int(os.environ.get("WATCH_DEBOUNCE_MS", "400"))
-WATCH_CALIBRATION_INTERVAL_S = float(
-    os.environ.get("WATCH_CALIBRATION_INTERVAL_S", "3.0")
-)
-WATCH_POSITION_TICK_MS = int(os.environ.get("WATCH_POSITION_TICK_MS", "50"))
-WATCH_SOCKET_PATH = Path(CACHE_DIR) / "watch.sock"
-
-
-class _Credentials:
-    """Credential config with lazy os.environ reads.
-
-    Stable constants live as module-level names above.
-    Credentials are @property so monkeypatch.setenv / monkeypatch.delenv
-    affect them without needing to patch each consumer separately.
-    """
-
-    @property
-    def SPOTIFY_SP_DC(self) -> str:
-        return os.environ.get("SPOTIFY_SP_DC", "")
-
-    @property
-    def QQ_MUSIC_API_URL(self) -> str:
-        return os.environ.get("QQ_MUSIC_API_URL", "").rstrip("/")
-
-    @property
-    def MUSIXMATCH_USERTOKEN(self) -> str:
-        return os.environ.get("MUSIXMATCH_USERTOKEN", "")
-
-
-credentials = _Credentials()
-
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-# Logger
+
+DEFAULT_PREFERRED_PLAYER = "spotify"
+DEFAULT_PLAYER_BLACKLIST: tuple[str, ...] = (
+    "firefox",
+    "zen",
+    "chrome",
+    "chromium",
+    "vivaldi",
+    "edge",
+    "opera",
+    "mpv",
+)
+
+
+@dataclass(frozen=True)
+class GeneralConfig:
+    preferred_player: str = DEFAULT_PREFERRED_PLAYER
+    player_blacklist: tuple[str, ...] = DEFAULT_PLAYER_BLACKLIST
+    http_timeout: float = 10.0
+
+
+@dataclass(frozen=True)
+class CredentialConfig:
+    spotify_sp_dc: str = ""
+    musixmatch_usertoken: str = ""
+    qq_music_api_url: str = ""
+
+
+@dataclass(frozen=True)
+class WatchConfig:
+    debounce_ms: int = 400
+    calibration_interval_s: float = 3.0
+    position_tick_ms: int = 50
+    socket_path: str = field(default_factory=lambda: _WATCH_SOCKET_PATH)
+
+
+@dataclass(frozen=True)
+class AppConfig:
+    general: GeneralConfig = field(default_factory=GeneralConfig)
+    credentials: CredentialConfig = field(default_factory=CredentialConfig)
+    watch: WatchConfig = field(default_factory=WatchConfig)
+
+
+_CONFIG_PATH = Path(user_config_dir(APP_NAME, APP_AUTHOR)) / "config.toml"
+
+
+def _coerce(val: Any, hint: Any, section: str, name: str) -> Any:
+    """Coerce and validate one TOML value against its declared field type."""
+    if hint is str:
+        if not isinstance(val, str):
+            raise ValueError(
+                f"[{section}].{name}: expected str, got {type(val).__name__}"
+            )
+        return val
+    if hint is int:
+        if not isinstance(val, int) or isinstance(val, bool):
+            raise ValueError(
+                f"[{section}].{name}: expected int, got {type(val).__name__}"
+            )
+        return val
+    if hint is float:
+        if isinstance(val, bool):
+            raise ValueError(f"[{section}].{name}: expected float, got bool")
+        if isinstance(val, (int, float)):
+            return float(val)
+        raise ValueError(
+            f"[{section}].{name}: expected float, got {type(val).__name__}"
+        )
+    origin = getattr(hint, "__origin__", None)
+    if origin is tuple:
+        if not isinstance(val, list):
+            raise ValueError(
+                f"[{section}].{name}: expected array, got {type(val).__name__}"
+            )
+        for i, item in enumerate(val):
+            if not isinstance(item, str):
+                raise ValueError(
+                    f"[{section}].{name}[{i}]: expected str, got {type(item).__name__}"
+                )
+        return tuple(val)
+    raise ValueError(f"[{section}].{name}: unsupported field type {hint!r}")
+
+
+def _parse_section(raw: dict[str, Any], cls: type, section: str) -> Any:
+    """Parse one TOML section dict into a frozen dataclass, rejecting unknown keys."""
+    fields_map = {f.name: f for f in dataclasses.fields(cls)}
+    hints = get_type_hints(cls)
+
+    unknown = set(raw) - set(fields_map)
+    if unknown:
+        raise ValueError(
+            f"Unknown config keys in [{section}]: {', '.join(sorted(unknown))}"
+        )
+
+    kwargs: dict[str, Any] = {}
+    for name, f in fields_map.items():
+        if name not in raw:
+            if f.default is not dataclasses.MISSING:
+                kwargs[name] = f.default
+            elif f.default_factory is not dataclasses.MISSING:  # type: ignore[misc]
+                kwargs[name] = f.default_factory()
+            continue
+        kwargs[name] = _coerce(raw[name], hints[name], section, name)
+
+    return cls(**kwargs)
+
+
+def load_config(path: Path | None = None) -> AppConfig:
+    """Load AppConfig from TOML file; return all-defaults when file is absent."""
+    resolved = path or _CONFIG_PATH
+    if not resolved.exists():
+        return AppConfig()
+    with open(resolved, "rb") as f:
+        data = tomllib.load(f)
+    return AppConfig(
+        general=_parse_section(data.get("general", {}), GeneralConfig, "general"),
+        credentials=_parse_section(
+            data.get("credentials", {}), CredentialConfig, "credentials"
+        ),
+        watch=_parse_section(data.get("watch", {}), WatchConfig, "watch"),
+    )
+
+
 _LOG_FORMAT = (
     "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
     "<level>{level: <8}</level> | "

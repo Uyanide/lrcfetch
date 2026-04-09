@@ -3,15 +3,15 @@
 import asyncio
 from typing import Awaitable, Callable, Optional
 
+from ..config import AppConfig
 from ..lrc import LRCData
 from ..models import TrackMeta
-from .options import WatchOptions
 
 
 class LyricFetcher:
     """Debounces track updates and runs at most one lyric fetch task at a time."""
 
-    _options: WatchOptions
+    _config: AppConfig
     _fetch_func: Callable[[TrackMeta], Awaitable[Optional[LRCData]]]
     _on_fetching: Callable[[], Awaitable[None] | None]
     _on_result: Callable[[Optional[LRCData]], Awaitable[None] | None]
@@ -24,10 +24,10 @@ class LyricFetcher:
         fetch_func: Callable[[TrackMeta], Awaitable[Optional[LRCData]]],
         on_fetching: Callable[[], Awaitable[None] | None],
         on_result: Callable[[Optional[LRCData]], Awaitable[None] | None],
-        options: WatchOptions,
+        config: AppConfig,
     ) -> None:
         """Initialize fetch callbacks and runtime options."""
-        self._options = options
+        self._config = config
         self._fetch_func = fetch_func
         self._on_fetching = on_fetching
         self._on_result = on_result
@@ -56,7 +56,7 @@ class LyricFetcher:
 
     async def _debounce_then_fetch(self) -> None:
         """Wait debounce window then start a fresh fetch task for latest pending track."""
-        await asyncio.sleep(self._options.debounce_ms / 1000.0)
+        await asyncio.sleep(self._config.watch.debounce_ms / 1000.0)
         track = self._pending_track
         if track is None:
             return

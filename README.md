@@ -21,7 +21,7 @@ highest-confidence result wins.
 1. **Local** — sidecar `.lrc` files or embedded audio metadata (FLAC, MP3)
 2. **Cache Search** — fuzzy cross-album lookup in local cache
 3. **Spotify** — synced lyrics via Spotify's API
-   (requires `SPOTIFY_SP_DC` and Spotify trackid)
+   (requires `credentials.spotify_sp_dc` and Spotify trackid)
 4. **LRCLIB** — exact match from [lrclib.net](https://lrclib.net)
    (requires full metadata)
 5. **Musixmatch (Spotify)** — Musixmatch API with Spotify trackid
@@ -30,7 +30,7 @@ highest-confidence result wins.
 7. **Musixmatch** — Musixmatch API with metadata search (requires at least a title)
 8. **Netease** — Netease Cloud Music public API
 9. **QQ Music** — QQ Music via self-hosted API proxy
-   (requires `QQ_MUSIC_API_URL` that provides the same interface as [tooplick/qq-music-api](https://github.com/tooplick/qq-music-api))
+   (requires `credentials.qq_music_api_url`; compatible with [tooplick/qq-music-api](https://github.com/tooplick/qq-music-api))
 
 > I'm aware that Spotify's lyrics are provided by Musixmatch, but the fact is
 > that Musixmatch's own search will yield different (and more) results than
@@ -46,7 +46,7 @@ See `lrx --help` for full command reference. Common use cases:
   lrx fetch
   ```
 
-  targeting a specific player and a source to fetch from:
+  targeting a specific player and source:
 
   ```bash
   lrx fetch --player mpd --method lrclib-search
@@ -73,49 +73,70 @@ See `lrx --help` for full command reference. Common use cases:
   lrx export --output /path/to/lyrics.lrc
   ```
 
+- Watch active player and stream lyrics continuously to stdout:
+
+  ```bash
+  lrx watch pipe
+  lrx watch pipe --before 1 --after 2   # show context lines
+  ```
+
+  Control a running watch session:
+
+  ```bash
+  lrx watch ctl status                  # print session status as JSON
+  lrx watch ctl offset +200             # shift lyrics forward 200 ms
+  lrx watch ctl offset -150
+  ```
+
 - Cache management:
 
   ```bash
-  lrx cache stats                    # statistics
-  lrx cache query                    # inspect cache entries for current track
-  lrx cache clear                    # clear cache of current track
-  lrx cache clear --all              # clear entire cache
-  lrx cache confidence spotify 100   # manually set confidence for a source
+  lrx cache stats                       # statistics
+  lrx cache query                       # inspect cache entries for current track
+  lrx cache clear                       # clear cache of current track
+  lrx cache clear --all                 # clear entire cache
+  lrx cache confidence spotify 100      # manually set confidence for a source
   ```
-
-## Configuration
-
-Set credentials via environment variable or `.env` file:
-
-- `~/.config/lrx/.env` — user-level
-- `.env` in working directory — project-local
-- Shell environment — highest priority
-
-```env
-SPOTIFY_SP_DC=your_cookie_value
-MUSIXMATCH_USERTOKEN=your_musixmatch_usertoken
-QQ_MUSIC_API_URL=https://api.example.com
-PREFERRED_PLAYER=spotify
-```
-
-- `SPOTIFY_SP_DC` — required for Spotify source. Defaults to empty
-  (disabled Spotify source).
-- `MUSIXMATCH_USERTOKEN` — optional for Musixmatch sources
-  ([Curators Settings Page](https://curators.musixmatch.com/settings)
-  -> Login (if required)
-  -> "Copy debug info").
-  If not set, an anonymous token will be fetched at runtime.
-- `QQ_MUSIC_API_URL` — required for QQ Music source. Defaults to empty
-  (disabled QQ Music source).
-- `PREFERRED_PLAYER` — preferred MPRIS player when multiple are active.
-  Defaults to `spotify`. Only used when no `--player` flag is given and more
-  than one player (or none of them) is currently playing.
 
 Shell completion (zsh/fish/bash):
 
 ```bash
 lrx --install-completion
 ```
+
+## Configuration
+
+Configuration is read from `~/.config/lrx-cli/config.toml`. The file is
+optional; all values have defaults. Unknown keys are rejected with an error.
+
+```toml
+[general]
+preferred_player  = "spotify"       # preferred MPRIS player when multiple are active
+player_blacklist  = ["firefox", "zen", "chrome", "chromium", "vivaldi", "edge", "opera", "mpv"]
+http_timeout      = 10.0            # seconds
+
+[credentials]
+spotify_sp_dc         = ""          # required for Spotify source
+musixmatch_usertoken  = ""          # optional; anonymous token fetched if empty
+qq_music_api_url      = ""          # required for QQ Music source
+
+[watch]
+debounce_ms             = 400       # ms to wait after a track change before fetching
+calibration_interval_s  = 3.0       # seconds between full MPRIS position recalibrations
+position_tick_ms        = 50        # ms between local position ticks
+socket_path             = ""        # Unix socket path; defaults to <cache_dir>/watch.sock
+```
+
+**Credentials:**
+
+- `spotify_sp_dc` — `SP_DC` cookie from a logged-in Spotify web session. Required
+  for the Spotify source; leave empty to disable it.
+- `musixmatch_usertoken` — found at
+  [Curators Settings Page](https://curators.musixmatch.com/settings) → Login → "Copy debug info".
+  If empty, an anonymous token is fetched at runtime.
+- `qq_music_api_url` — base URL of a self-hosted
+  [qq-music-api](https://github.com/tooplick/qq-music-api) (compatible) instance. Required
+  for the QQ Music source; leave empty to disable it.
 
 ## Development
 

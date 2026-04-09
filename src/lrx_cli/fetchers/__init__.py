@@ -23,6 +23,7 @@ from ..authenticators import (
     QQMusicAuthenticator,
 )
 from ..cache import CacheEngine
+from ..config import AppConfig
 from ..models import TrackMeta
 
 FetcherMethodType = Literal[
@@ -52,26 +53,27 @@ _FETCHER_GROUPS: list[list[FetcherMethodType]] = [
 def create_fetchers(
     cache: CacheEngine,
     authenticators: dict[str, BaseAuthenticator],
+    config: AppConfig,
 ) -> dict[FetcherMethodType, BaseFetcher]:
     """Instantiate all fetchers. Returns a dict keyed by source name."""
     spotify_auth = authenticators["spotify"]
     mxm_auth = authenticators["musixmatch"]
-    qqmusic_auth = authenticators.get("qqmusic")
+    qqmusic_auth = authenticators["qqmusic"]
     assert isinstance(spotify_auth, SpotifyAuthenticator)
     assert isinstance(mxm_auth, MusixmatchAuthenticator)
     assert isinstance(qqmusic_auth, QQMusicAuthenticator)
-    fetchers: dict[FetcherMethodType, BaseFetcher] = {
-        "local": LocalFetcher(),
+    g = config.general
+    return {
+        "local": LocalFetcher(g),
         "cache-search": CacheSearchFetcher(cache),
-        "spotify": SpotifyFetcher(spotify_auth),
-        "lrclib": LrclibFetcher(),
-        "musixmatch-spotify": MusixmatchSpotifyFetcher(mxm_auth),
-        "lrclib-search": LrclibSearchFetcher(),
-        "netease": NeteaseFetcher(),
-        "qqmusic": QQMusicFetcher(qqmusic_auth),
-        "musixmatch": MusixmatchFetcher(mxm_auth),
+        "spotify": SpotifyFetcher(g, spotify_auth),
+        "lrclib": LrclibFetcher(g),
+        "musixmatch-spotify": MusixmatchSpotifyFetcher(g, mxm_auth),
+        "lrclib-search": LrclibSearchFetcher(g),
+        "netease": NeteaseFetcher(g),
+        "qqmusic": QQMusicFetcher(g, qqmusic_auth),
+        "musixmatch": MusixmatchFetcher(g, mxm_auth),
     }
-    return fetchers
 
 
 def build_plan(

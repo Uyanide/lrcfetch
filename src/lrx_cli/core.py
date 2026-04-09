@@ -22,6 +22,7 @@ from .config import (
     HIGH_CONFIDENCE,
     SLOT_SYNCED,
     SLOT_UNSYNCED,
+    AppConfig,
 )
 from .models import TrackMeta, LyricResult, CacheStatus
 from .enrichers import create_enrichers, enrich_track
@@ -92,10 +93,10 @@ def _has_negative_for_both_slots(cached_rows: list[LyricResult]) -> bool:
 class LrcManager:
     """Main entry point for fetching lyrics with caching."""
 
-    def __init__(self, db_path: str) -> None:
+    def __init__(self, db_path: str, config: AppConfig = AppConfig()) -> None:
         self.cache = CacheEngine(db_path=db_path)
-        self.authenticators = create_authenticators(self.cache)
-        self.fetchers = create_fetchers(self.cache, self.authenticators)
+        self.authenticators = create_authenticators(self.cache, config)
+        self.fetchers = create_fetchers(self.cache, self.authenticators, config)
         self.enrichers = create_enrichers(self.authenticators)
 
     async def _run_group(

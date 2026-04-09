@@ -4,13 +4,13 @@ import asyncio
 import time
 from typing import Awaitable, Callable, Optional
 
-from .options import WatchOptions
+from ..config import AppConfig
 
 
 class PositionTracker:
     """Maintains an estimated playback position from seek/status events plus local clock."""
 
-    _options: WatchOptions
+    _config: AppConfig
     _poll_position_ms: Callable[[str], Awaitable[Optional[int]]]
     _active_player: str | None
     _is_playing: bool
@@ -24,11 +24,11 @@ class PositionTracker:
     def __init__(
         self,
         poll_position_ms: Callable[[str], Awaitable[Optional[int]]],
-        options: WatchOptions,
+        config: AppConfig,
         on_tick: Callable[[], None] | None = None,
     ) -> None:
         """Initialize tracker with position polling callback and runtime options."""
-        self._options = options
+        self._config = config
         self._poll_position_ms = poll_position_ms
         self._on_tick = on_tick
         self._active_player: str | None = None
@@ -105,7 +105,7 @@ class PositionTracker:
 
     async def _fast_loop(self) -> None:
         """Advance position by monotonic clock while active player is playing."""
-        interval = self._options.position_tick_ms / 1000.0
+        interval = self._config.watch.position_tick_ms / 1000.0
         while True:
             await asyncio.sleep(interval)
             should_notify = False

@@ -11,21 +11,23 @@ from .base import BaseFetcher, FetchResult
 from ..authenticators.spotify import SpotifyAuthenticator, SPOTIFY_BASE_HEADERS
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..lrc import LRCData
-from ..config import HTTP_TIMEOUT, TTL_NOT_FOUND
+from ..config import GeneralConfig, TTL_NOT_FOUND
 
 _SPOTIFY_LYRICS_URL = "https://spclient.wg.spotify.com/color-lyrics/v2/track/"
 
 
 class SpotifyFetcher(BaseFetcher):
-    def __init__(self, auth: SpotifyAuthenticator) -> None:
-        self.auth = auth
+    def __init__(self, general: GeneralConfig, auth: SpotifyAuthenticator) -> None:
+        super().__init__(general, auth)
+
+    _auth: SpotifyAuthenticator
 
     @property
     def source_name(self) -> str:
         return "spotify"
 
     def is_available(self, track: TrackMeta) -> bool:
-        return bool(track.trackid) and self.auth.is_configured()
+        return bool(track.trackid) and self._auth.is_configured()
 
     @staticmethod
     def _format_lrc_line(start_ms: int, words: str) -> str:
@@ -52,7 +54,7 @@ class SpotifyFetcher(BaseFetcher):
 
         logger.info(f"Spotify: fetching lyrics for trackid={track.trackid}")
 
-        token = await self.auth.authenticate()
+        token = await self._auth.authenticate()
         if not token:
             logger.error("Spotify: cannot fetch lyrics without a token")
             return FetchResult.from_network_error()
@@ -65,7 +67,7 @@ class SpotifyFetcher(BaseFetcher):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=self._general.http_timeout) as client:
                 res = await client.get(url, headers=headers)
 
                 if res.status_code == 404:

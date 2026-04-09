@@ -7,33 +7,19 @@
 
 import asyncio
 from dataclasses import asdict
-from typing import Optional, Protocol
+from typing import Optional
 
 from loguru import logger
 
-from ..fetchers import FetcherMethodType
+from ..core import LrcManager
 from ..lrc import LRCData
-from ..models import LyricResult
 from ..models import TrackMeta
 from .control import ControlServer
 from .fetcher import LyricFetcher
-from .options import WatchOptions
+from ..config import AppConfig
 from .view import BaseOutput, LyricView, WatchState
 from .player import ActivePlayerSelector, PlayerMonitor, PlayerTarget
 from .tracker import PositionTracker
-
-
-class FetchManager(Protocol):
-    """Protocol for lyric fetch manager consumed by watch session."""
-
-    def fetch_for_track(
-        self,
-        track: TrackMeta,
-        force_method: FetcherMethodType | None = None,
-        bypass_cache: bool = False,
-        allow_unsynced: bool = False,
-    ) -> Optional[LyricResult]:
-        """Fetch lyrics for one track."""
 
 
 class WatchModel:
@@ -103,9 +89,9 @@ class WatchViewModel:
 class WatchCoordinator:
     """Application/service orchestration layer for watch runtime."""
 
-    _manager: FetchManager
+    _manager: LrcManager
     _output: BaseOutput
-    _options: WatchOptions
+    _config: AppConfig
     _model: WatchModel
     _view_model: WatchViewModel
     _player_hint: str | None
@@ -120,14 +106,14 @@ class WatchCoordinator:
 
     def __init__(
         self,
-        manager: FetchManager,
+        manager: LrcManager,
         output: BaseOutput,
         player_hint: str | None,
-        options: WatchOptions,
+        config: AppConfig,
     ) -> None:
         self._manager = manager
         self._output = output
-        self._options = options
+        self._config = config
         self._model = WatchModel()
         self._view_model = WatchViewModel(self._model)
         self._player_hint = player_hint
@@ -137,27 +123,27 @@ class WatchCoordinator:
 
         self._target = PlayerTarget(
             hint=player_hint,
-            player_blacklist=self._options.player_blacklist,
+            player_blacklist=self._config.general.player_blacklist,
         )
 
-        self._control = ControlServer(options=self._options)
+        self._control = ControlServer(config=self._config)
         self._player_monitor = PlayerMonitor(
             on_players_changed=self._on_player_change,
             on_seeked=self._on_seeked,
             on_playback_status=self._on_playback_status,
-            options=self._options,
+            config=self._config,
             target=self._target,
         )
         self._tracker = PositionTracker(
             poll_position_ms=self._player_monitor.get_position_ms,
-            options=self._options,
+            config=self._config,
             on_tick=self._on_tracker_tick,
         )
         self._fetcher = LyricFetcher(
             fetch_func=self._fetch_lyrics,
             on_fetching=self._on_fetching,
             on_result=self._on_lyrics_update,
-            options=self._options,
+            config=self._config,
         )
 
     async def run(self) -> bool:
@@ -199,7 +185,7 @@ class WatchCoordinator:
 
     async def _calibration_loop(self) -> None:
         """Periodically refresh full MPRIS snapshot as fallback calibration."""
-        interval = max(0.1, self._options.calibration_interval_s)
+        interval = max(0.1, self._config.watch.calibration_interval_s)
         while True:
             await asyncio.sleep(interval)
             try:
@@ -234,7 +220,7 @@ class WatchCoordinator:
             track,
             None,
             False,
-            True,
+            False,
         )
         if result and result.lyrics:
             return result.lyrics
@@ -248,7 +234,7 @@ class WatchCoordinator:
         selected = ActivePlayerSelector.select(
             self._player_monitor.players,
             self._model.active_player,
-            self._options,
+            self._config,
         )
         self._model.active_player = selected
 
@@ -313,8 +299,8 @@ class WatchCoordinator:
             self._model.status = "ok"
         elif started_fetch:
             self._model.status = "fetching"
-        else:
-            self._model.status = "paused"
+        elif self._model.status != "fetching":
+            self._model.status = "no_lyrics"
         self._schedule_emit()
 
     def _on_seeked(self, bus_name: str, position_ms: int) -> None:
@@ -330,8 +316,8 @@ class WatchCoordinator:
                     self._model.status = "ok"
                 elif started_fetch:
                     self._model.status = "fetching"
-                else:
-                    self._model.status = "paused"
+                elif self._model.status != "fetching":
+                    self._model.status = "no_lyrics"
             else:
                 self._model.status = "paused"
             self._schedule_emit()

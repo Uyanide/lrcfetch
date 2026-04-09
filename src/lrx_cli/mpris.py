@@ -8,14 +8,17 @@ import asyncio
 from dbus_next.aio.message_bus import MessageBus
 from dbus_next.constants import BusType
 from dbus_next.message import Message
+from lrx_cli.config import DEFAULT_PLAYER_BLACKLIST, DEFAULT_PREFERRED_PLAYER
 from lrx_cli.models import TrackMeta
-from lrx_cli.config import PREFERRED_PLAYER
 from loguru import logger
 from typing import Optional, List, Any
 
 
-async def _list_mpris_players(bus: MessageBus) -> List[str]:
-    """List all MPRIS player bus names."""
+async def _list_mpris_players(
+    bus: MessageBus,
+    player_blacklist: tuple[str, ...],
+) -> List[str]:
+    """List all MPRIS player bus names, excluding blacklisted entries."""
     try:
         reply = await bus.call(
             Message(
@@ -28,7 +31,10 @@ async def _list_mpris_players(bus: MessageBus) -> List[str]:
         if not reply or not reply.body:
             return []
         return [
-            name for name in reply.body[0] if name.startswith("org.mpris.MediaPlayer2.")
+            name
+            for name in reply.body[0]
+            if name.startswith("org.mpris.MediaPlayer2.")
+            and not any(x.lower() in name.lower() for x in player_blacklist)
         ]
     except Exception as e:
         logger.error(f"Failed to list DBus names: {e}")
@@ -53,15 +59,18 @@ async def _get_playback_status(bus: MessageBus, player_name: str) -> Optional[st
 
 
 async def _select_player(
-    bus: MessageBus, specific_player: Optional[str] = None
+    bus: MessageBus,
+    specific_player: Optional[str],
+    preferred_player: str,
+    player_blacklist: tuple[str, ...],
 ) -> Optional[str]:
     """Select the best MPRIS player.
 
     When specific_player is given, filter by name match.
     Otherwise: prefer the currently playing player. If multiple are playing,
-    prefer the one matching PREFERRED_PLAYER env var (default: spotify).
+    prefer the one matching preferred_player (default: spotify).
     """
-    players = await _list_mpris_players(bus)
+    players = await _list_mpris_players(bus, player_blacklist)
     if not players:
         return None
 
@@ -82,8 +91,8 @@ async def _select_player(
     if len(candidates) == 1:
         return candidates[0]
 
-    # Multiple candidates: prefer PREFERRED_PLAYER
-    preferred = PREFERRED_PLAYER.lower()
+    # Multiple candidates: prefer preferred_player
+    preferred = preferred_player.lower()
     if preferred:
         for p in candidates:
             if preferred in p.lower():
@@ -92,7 +101,9 @@ async def _select_player(
 
 
 async def _fetch_metadata_dbus(
-    specific_player: Optional[str] = None,
+    specific_player: Optional[str],
+    preferred_player: str,
+    player_blacklist: tuple[str, ...],
 ) -> Optional[TrackMeta]:
     bus = None
     try:
@@ -102,7 +113,9 @@ async def _fetch_metadata_dbus(
         return None
 
     try:
-        player_name = await _select_player(bus, specific_player)
+        player_name = await _select_player(
+            bus, specific_player, preferred_player, player_blacklist
+        )
         if not player_name:
             logger.debug(
                 f"No active MPRIS players found via DBus{' for ' + specific_player if specific_player else ''}."
@@ -182,9 +195,15 @@ async def _fetch_metadata_dbus(
             bus.disconnect()
 
 
-def get_current_track(player_name: Optional[str] = None) -> Optional[TrackMeta]:
+def get_current_track(
+    player_name: Optional[str] = None,
+    preferred_player: str = DEFAULT_PREFERRED_PLAYER,
+    player_blacklist: tuple[str, ...] = DEFAULT_PLAYER_BLACKLIST,
+) -> Optional[TrackMeta]:
     try:
-        return asyncio.run(_fetch_metadata_dbus(player_name))
+        return asyncio.run(
+            _fetch_metadata_dbus(player_name, preferred_player, player_blacklist)
+        )
     except Exception as e:
         logger.error(f"DBus async loop failed: {e}")
         return None

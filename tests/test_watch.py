@@ -10,19 +10,12 @@ from lrx_cli.watch.view import BaseOutput, LyricView, WatchState
 from lrx_cli.watch.view.pipe import PipeOutput
 from lrx_cli.watch.player import ActivePlayerSelector, PlayerState, PlayerTarget
 from lrx_cli.watch.fetcher import LyricFetcher
-from lrx_cli.watch.options import WatchOptions
+from lrx_cli.config import AppConfig
 from lrx_cli.watch.tracker import PositionTracker
 from lrx_cli.watch.session import WatchCoordinator
 
 
-TEST_WATCH_OPTIONS = WatchOptions(
-    preferred_player="spotify",
-    player_blacklist=(),
-    debounce_ms=400,
-    position_tick_ms=50,
-    calibration_interval_s=3.0,
-    socket_path=Path("/tmp/lrx-watch-test.sock"),
-)
+TEST_CONFIG = AppConfig()
 
 
 def test_parse_delta_supports_plus_minus_and_reset() -> None:
@@ -64,7 +57,7 @@ def test_active_player_selector_prefers_single_playing() -> None:
         ),
     }
     assert (
-        ActivePlayerSelector.select(players, None, TEST_WATCH_OPTIONS)
+        ActivePlayerSelector.select(players, None, TEST_CONFIG)
         == "org.mpris.MediaPlayer2.bar"
     )
 
@@ -87,7 +80,7 @@ def test_active_player_selector_uses_last_active_when_no_playing() -> None:
         ActivePlayerSelector.select(
             players,
             "org.mpris.MediaPlayer2.bar",
-            TEST_WATCH_OPTIONS,
+            TEST_CONFIG,
         )
         == "org.mpris.MediaPlayer2.bar"
     )
@@ -98,7 +91,7 @@ def test_position_tracker_seeked_calibrates_immediately() -> None:
         async def _poll(_bus: str):
             return 1200
 
-        tracker = PositionTracker(_poll, TEST_WATCH_OPTIONS)
+        tracker = PositionTracker(_poll, TEST_CONFIG)
         await tracker.start()
         await tracker.set_active_player(
             "org.mpris.MediaPlayer2.foo", "Playing", "track-A"
@@ -116,7 +109,7 @@ def test_position_tracker_playback_status_pause_stops_fast_growth() -> None:
         async def _poll(_bus: str):
             return 0
 
-        tracker = PositionTracker(_poll, TEST_WATCH_OPTIONS)
+        tracker = PositionTracker(_poll, TEST_CONFIG)
         await tracker.start()
         await tracker.set_active_player(
             "org.mpris.MediaPlayer2.foo", "Playing", "track-A"
@@ -140,7 +133,7 @@ def test_position_tracker_playback_status_playing_calibrates_once() -> None:
         async def _poll(_bus: str):
             return 50000
 
-        tracker = PositionTracker(_poll, TEST_WATCH_OPTIONS)
+        tracker = PositionTracker(_poll, TEST_CONFIG)
         await tracker.start()
         await tracker.set_active_player(
             "org.mpris.MediaPlayer2.foo", "Paused", "track-A"
@@ -159,7 +152,7 @@ def test_position_tracker_set_active_player_playing_calibrates_on_resume() -> No
         async def _poll(_bus: str):
             return 42000
 
-        tracker = PositionTracker(_poll, TEST_WATCH_OPTIONS)
+        tracker = PositionTracker(_poll, TEST_CONFIG)
         await tracker.start()
         await tracker.set_active_player(
             "org.mpris.MediaPlayer2.foo", "Paused", "track-A"
@@ -189,11 +182,11 @@ def test_control_server_and_client_roundtrip(tmp_path: Path) -> None:
                 return {"ok": True, "offset_ms": self.offset, "lyrics_status": "idle"}
 
         socket_path = tmp_path / "watch.sock"
-        server = ControlServer(socket_path=socket_path, options=TEST_WATCH_OPTIONS)
+        server = ControlServer(socket_path=socket_path, config=TEST_CONFIG)
         session = _Session()
 
-        await server.start(session)
-        client = ControlClient(socket_path=socket_path, options=TEST_WATCH_OPTIONS)
+        await server.start(session)  # type: ignore
+        client = ControlClient(socket_path=socket_path, config=TEST_CONFIG)
         r1 = await client._send_async({"cmd": "offset", "delta": 200})
         r2 = await client._send_async({"cmd": "status"})
         await server.stop()
@@ -327,23 +320,23 @@ def test_session_fetches_on_resume_playing_without_lyrics() -> None:
                 async def _on_result(_lyrics) -> None:
                     return None
 
-                super().__init__(_fetch, _on_fetching, _on_result, TEST_WATCH_OPTIONS)
+                super().__init__(_fetch, _on_fetching, _on_result, TEST_CONFIG)
                 self.requested = []
 
             def request(self, track: TrackMeta) -> None:
                 self.requested.append(track.display_name())
 
         session = WatchCoordinator(
-            _Manager(),
+            _Manager(),  # type: ignore
             _Output(),
             player_hint=None,
-            options=TEST_WATCH_OPTIONS,
+            config=TEST_CONFIG,
         )
         fake_fetcher = _Fetcher()
         session._fetcher = fake_fetcher
         session._tracker = PositionTracker(
             lambda _bus: asyncio.sleep(0, result=0),
-            TEST_WATCH_OPTIONS,
+            TEST_CONFIG,
         )
 
         bus_name = "org.mpris.MediaPlayer2.spotify"
@@ -379,14 +372,14 @@ def test_session_emit_state_only_when_lyric_cursor_changes() -> None:
 
         output = _Output()
         session = WatchCoordinator(
-            _Manager(),
+            _Manager(),  # type: ignore
             output,
             player_hint=None,
-            options=TEST_WATCH_OPTIONS,
+            config=TEST_CONFIG,
         )
         session._tracker = PositionTracker(
             lambda _bus: asyncio.sleep(0, result=0),
-            TEST_WATCH_OPTIONS,
+            TEST_CONFIG,
         )
 
         bus_name = "org.mpris.MediaPlayer2.spotify"
@@ -429,14 +422,14 @@ def test_session_emits_when_crossing_first_timestamp() -> None:
 
         output = _Output()
         session = WatchCoordinator(
-            _Manager(),
+            _Manager(),  # type: ignore
             output,
             player_hint=None,
-            options=TEST_WATCH_OPTIONS,
+            config=TEST_CONFIG,
         )
         session._tracker = PositionTracker(
             lambda _bus: asyncio.sleep(0, result=0),
-            TEST_WATCH_OPTIONS,
+            TEST_CONFIG,
         )
 
         bus_name = "org.mpris.MediaPlayer2.spotify"

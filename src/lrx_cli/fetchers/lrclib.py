@@ -13,7 +13,6 @@ from .base import BaseFetcher, FetchResult
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..lrc import LRCData
 from ..config import (
-    HTTP_TIMEOUT,
     TTL_UNSYNCED,
     TTL_NOT_FOUND,
     UA_LRX,
@@ -46,7 +45,7 @@ class LrclibFetcher(BaseFetcher):
         logger.info(f"LRCLIB: fetching lyrics for {track.display_name()}")
 
         try:
-            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=self._general.http_timeout) as client:
                 resp = await client.get(url, headers={"User-Agent": UA_LRX})
 
             if resp.status_code == 404:

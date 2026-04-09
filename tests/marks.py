@@ -1,16 +1,18 @@
-import os
-
 import pytest
 
+from lrx_cli.config import load_config
+
+_credentials = load_config().credentials
+
 requires_spotify = pytest.mark.skipif(
-    not os.environ.get("SPOTIFY_SP_DC"),
-    reason="requires SPOTIFY_SP_DC",
+    not _credentials.spotify_sp_dc,
+    reason="requires credentials.spotify_sp_dc in config.toml",
 )
 requires_qq_music = pytest.mark.skipif(
-    not os.environ.get("QQ_MUSIC_API_URL"),
-    reason="requires QQ_MUSIC_API_URL",
+    not _credentials.qq_music_api_url,
+    reason="requires credentials.qq_music_api_url in config.toml",
 )
 requires_musixmatch_token = pytest.mark.skipif(
-    not os.environ.get("MUSIXMATCH_USERTOKEN"),
-    reason="requires MUSIXMATCH_USERTOKEN",
+    not _credentials.musixmatch_usertoken,
+    reason="requires credentials.musixmatch_usertoken in config.toml",
 )

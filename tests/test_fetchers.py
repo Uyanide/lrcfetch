@@ -1,14 +1,16 @@
-from pathlib import Path
-import pytest
 from dataclasses import replace
+from pathlib import Path
 
+import pytest
+
+from lrx_cli.config import AppConfig, load_config
+from lrx_cli.core import LrcManager
 from lrx_cli.fetchers import FetcherMethodType
 from lrx_cli.models import TrackMeta
-from lrx_cli.core import LrcManager
 from tests.marks import (
-    requires_spotify,
-    requires_qq_music,
     requires_musixmatch_token,
+    requires_qq_music,
+    requires_spotify,
 )
 
 SAMPLE_SPOTIFY_TRACK: TrackMeta = TrackMeta(
@@ -33,7 +35,14 @@ SAMPLE_SPOTIFY_TRACK_ALBUM_ARTIST_MODIFIED = replace(
 
 @pytest.fixture
 def lrc_manager(tmp_path: Path) -> LrcManager:
-    return LrcManager(str(tmp_path / "cache.db"))
+    """LrcManager with empty credentials (no auth required)."""
+    return LrcManager(str(tmp_path / "cache.db"), AppConfig())
+
+
+@pytest.fixture
+def cred_lrc_manager(tmp_path: Path) -> LrcManager:
+    """LrcManager with credentials from config.toml (for CI/network tests)."""
+    return LrcManager(str(tmp_path / "cache.db"), load_config())
 
 
 def _fetch_and_assert(
@@ -112,7 +121,6 @@ def test_cache_search_fetcher_prefer_better_match(lrc_manager: LrcManager):
     ],
 )
 def test_anonymous_remote_fetchers(
-    no_credentials,
     lrc_manager: LrcManager,
     method: FetcherMethodType,
     expect_fail: bool,
@@ -122,18 +130,18 @@ def test_anonymous_remote_fetchers(
 
 @pytest.mark.network
 @requires_spotify
-def test_spotify_fetcher(lrc_manager: LrcManager):
-    _fetch_and_assert(lrc_manager, "spotify")
+def test_spotify_fetcher(cred_lrc_manager: LrcManager):
+    _fetch_and_assert(cred_lrc_manager, "spotify")
 
 
 @pytest.mark.network
 @requires_qq_music
-def test_qqmusic_fetcher(lrc_manager: LrcManager):
-    _fetch_and_assert(lrc_manager, "qqmusic")
+def test_qqmusic_fetcher(cred_lrc_manager: LrcManager):
+    _fetch_and_assert(cred_lrc_manager, "qqmusic")
 
 
 @pytest.mark.network
-def test_musixmatch_anonymous_fetcher(no_credentials, lrc_manager: LrcManager):
+def test_musixmatch_anonymous_fetcher(lrc_manager: LrcManager):
     # These fetchers should be tested in a single test to share the same usertoken
     # Otherwise the second may fail due to rate limits
     _fetch_and_assert(lrc_manager, "musixmatch", expect_fail=False)
@@ -142,9 +150,9 @@ def test_musixmatch_anonymous_fetcher(no_credentials, lrc_manager: LrcManager):
 
 @pytest.mark.network
 @requires_musixmatch_token
-def test_musixmatch_fetcher(lrc_manager: LrcManager):
-    _fetch_and_assert(lrc_manager, "musixmatch")
-    _fetch_and_assert(lrc_manager, "musixmatch-spotify")
+def test_musixmatch_fetcher(cred_lrc_manager: LrcManager):
+    _fetch_and_assert(cred_lrc_manager, "musixmatch")
+    _fetch_and_assert(cred_lrc_manager, "musixmatch-spotify")
 
 
 def test_local_fetcher(lrc_manager: LrcManager):

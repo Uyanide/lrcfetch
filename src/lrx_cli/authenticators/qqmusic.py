@@ -7,19 +7,22 @@ Description: QQ Music API authenticator - currently only a proxy.
 from typing import Optional
 
 from .base import BaseAuthenticator
-from ..config import credentials
+from ..cache import CacheEngine
+from ..config import CredentialConfig, GeneralConfig
 
 
 class QQMusicAuthenticator(BaseAuthenticator):
-    def __init__(self) -> None:
-        pass
+    def __init__(
+        self, cache: CacheEngine, credentials: CredentialConfig, general: GeneralConfig
+    ) -> None:
+        super().__init__(cache, credentials, general)
 
     @property
     def name(self) -> str:
         return "qqmusic"
 
     def is_configured(self) -> bool:
-        return bool(credentials.QQ_MUSIC_API_URL)
+        return bool(self._credentials.qq_music_api_url)
 
     async def authenticate(self) -> Optional[str]:
-        return credentials.QQ_MUSIC_API_URL
+        return self._credentials.qq_music_api_url.rstrip("/") or None

@@ -277,3 +277,53 @@ def test_unsynced_cache_only_still_fetches_when_unsynced_disallowed(tmp_path):
     assert fetcher.called
     assert result is not None
     assert result.status == CacheStatus.SUCCESS_SYNCED
+
+
+# manual_insert
+
+
+def test_manual_insert_synced_stored_with_correct_status(tmp_path):
+    manager = make_manager(tmp_path)
+    manager.manual_insert(_track(), "[00:01.00]Hello\n[00:03.00]World\n")
+
+    rows = manager.cache.query_track(_track())
+    assert any(r["status"] == CacheStatus.SUCCESS_SYNCED.value for r in rows)
+
+
+def test_manual_insert_unsynced_stored_with_correct_status(tmp_path):
+    manager = make_manager(tmp_path)
+    manager.manual_insert(_track(), "Hello\nWorld\n")
+
+    rows = manager.cache.query_track(_track())
+    assert any(r["status"] == CacheStatus.SUCCESS_UNSYNCED.value for r in rows)
+
+
+def test_manual_insert_source_and_ttl(tmp_path):
+    manager = make_manager(tmp_path)
+    manager.manual_insert(_track(), "[00:01.00]line\n")
+
+    rows = manager.cache.query_track(_track())
+    assert all(r["source"] == "manual" for r in rows)
+    assert all(r["expires_at"] is None for r in rows)
+
+
+def test_manual_insert_overwrites_previous_entry(tmp_path):
+    manager = make_manager(tmp_path)
+    track = _track()
+    manager.manual_insert(track, "[00:01.00]old\n")
+    manager.manual_insert(track, "[00:01.00]new\n")
+
+    best = manager.cache.get_best(track, ["manual"])
+    assert best is not None
+    assert str(best.lyrics) == "[00:01.00]new"
+
+
+def test_manual_insert_is_returned_by_fetch(tmp_path):
+    manager = make_manager(tmp_path)
+    track = _track()
+    manager.manual_insert(track, "[00:01.00]cached\n")
+
+    result = manager.fetch_for_track(track)
+    assert result is not None
+    assert result.lyrics is not None
+    assert str(result.lyrics) == "[00:01.00]cached"

@@ -18,6 +18,7 @@ from loguru import logger
 from .base import BaseFetcher, FetchResult
 from .selection import SearchCandidate, select_best
 from ..authenticators.musixmatch import MusixmatchAuthenticator
+from ..config import GeneralConfig
 from ..lrc import LRCData
 from ..models import CacheStatus, LyricResult, TrackMeta
 
@@ -145,22 +146,24 @@ async def _fetch_macro(
 class MusixmatchSpotifyFetcher(BaseFetcher):
     """Direct lookup by Spotify track ID — no search, single request."""
 
-    def __init__(self, auth: MusixmatchAuthenticator) -> None:
-        self.auth = auth
+    _auth: MusixmatchAuthenticator
+
+    def __init__(self, general: GeneralConfig, auth: MusixmatchAuthenticator) -> None:
+        super().__init__(general, auth)
 
     @property
     def source_name(self) -> str:
         return "musixmatch-spotify"
 
     def is_available(self, track: TrackMeta) -> bool:
-        return bool(track.trackid) and not self.auth.is_cooldown()
+        return bool(track.trackid) and not self._auth.is_cooldown()
 
     async def fetch(self, track: TrackMeta, bypass_cache: bool = False) -> FetchResult:
         logger.info(f"Musixmatch-Spotify: fetching lyrics for {track.display_name()}")
 
         try:
             lrc = await _fetch_macro(
-                self.auth,
+                self._auth,
                 {"track_spotify_id": track.trackid},  # type: ignore[dict-item]
             )
         except AttributeError:
@@ -191,8 +194,10 @@ class MusixmatchSpotifyFetcher(BaseFetcher):
 class MusixmatchFetcher(BaseFetcher):
     """Metadata search + best-candidate lyric fetch."""
 
-    def __init__(self, auth: MusixmatchAuthenticator) -> None:
-        self.auth = auth
+    _auth: MusixmatchAuthenticator
+
+    def __init__(self, general: GeneralConfig, auth: MusixmatchAuthenticator) -> None:
+        super().__init__(general, auth)
 
     @property
     def source_name(self) -> str:
@@ -203,7 +208,7 @@ class MusixmatchFetcher(BaseFetcher):
         return "musixmatch"
 
     def is_available(self, track: TrackMeta) -> bool:
-        return bool(track.title) and not self.auth.is_cooldown()
+        return bool(track.title) and not self._auth.is_cooldown()
 
     async def _search(self, track: TrackMeta) -> tuple[Optional[int], float]:
         """Search for track metadata. Raises on network/HTTP errors."""
@@ -218,7 +223,7 @@ class MusixmatchFetcher(BaseFetcher):
             params["q_album"] = track.album
 
         logger.debug(f"Musixmatch: searching for '{track.display_name()}'")
-        data = await self.auth.get_json(_MUSIXMATCH_SEARCH_URL, params)
+        data = await self._auth.get_json(_MUSIXMATCH_SEARCH_URL, params)
         if data is None:
             return None, 0.0
 
@@ -270,7 +275,7 @@ class MusixmatchFetcher(BaseFetcher):
                 return FetchResult.from_not_found()
 
             lrc = await _fetch_macro(
-                self.auth,
+                self._auth,
                 {"commontrack_id": str(commontrack_id)},
             )
         except AttributeError:

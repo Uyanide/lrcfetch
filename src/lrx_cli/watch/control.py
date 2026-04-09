@@ -3,49 +3,32 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import Protocol, TypeAlias
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from .options import WatchOptions
+from ..config import AppConfig
 
-
-JSONPrimitive: TypeAlias = str | int | float | bool | None
-JSONValue: TypeAlias = JSONPrimitive | dict[str, "JSONValue"] | list["JSONValue"]
-JSONDict: TypeAlias = dict[str, JSONValue]
-
-
-class ControlSession(Protocol):
-    """Session protocol used by control channel handlers."""
-
-    def handle_offset(self, delta: int) -> JSONDict:
-        """Apply offset delta and return JSON response payload."""
-        ...
-
-    def handle_status(self) -> JSONDict:
-        """Return current session status payload."""
-        ...
+if TYPE_CHECKING:
+    from .session import WatchCoordinator
 
 
 class ControlServer:
     """Control server that handles offset/status commands over a Unix socket."""
 
-    _options: WatchOptions
     _socket_path: Path
     _server: asyncio.AbstractServer | None
 
     def __init__(
         self,
-        options: WatchOptions,
+        config: AppConfig,
         socket_path: Path | None = None,
     ) -> None:
-        """Initialize control server with explicit socket path or runtime options."""
-        self._options = options
-        resolved_socket_path = socket_path or self._options.socket_path
-        self._socket_path: Path = resolved_socket_path
+        """Initialize control server with socket path from config or explicit override."""
+        self._socket_path: Path = socket_path or Path(config.watch.socket_path)
         self._server: asyncio.AbstractServer | None = None
 
-    async def start(self, session: ControlSession) -> bool:
+    async def start(self, session: "WatchCoordinator") -> bool:
         """Start listening for control requests and bind session handlers."""
         if not await self._prepare_socket_path():
             return False
@@ -90,12 +73,12 @@ class ControlServer:
 
     async def _handle(
         self,
-        session: ControlSession,
+        session: "WatchCoordinator",
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
         """Handle one control request and send JSON response."""
-        resp: JSONDict = {"ok": False, "error": "internal error"}
+        resp: dict[str, object] = {"ok": False, "error": "internal error"}
         try:
             line = await reader.readline()
             if not line:
@@ -122,20 +105,17 @@ class ControlServer:
 class ControlClient:
     """Control client used by CLI commands to talk to active watch session."""
 
-    _options: WatchOptions
     _socket_path: Path
 
     def __init__(
         self,
-        options: WatchOptions,
+        config: AppConfig,
         socket_path: Path | None = None,
     ) -> None:
-        """Initialize control client with explicit socket path or runtime options."""
-        self._options = options
-        resolved_socket_path = socket_path or self._options.socket_path
-        self._socket_path: Path = resolved_socket_path
+        """Initialize control client with socket path from config or explicit override."""
+        self._socket_path: Path = socket_path or Path(config.watch.socket_path)
 
-    async def _send_async(self, cmd: JSONDict) -> JSONDict:
+    async def _send_async(self, cmd: dict[str, object]) -> dict[str, object]:
         """Send one JSON command to control server and return JSON response."""
         if not self._socket_path.exists():
             return {"ok": False, "error": "No watch session running."}
@@ -154,7 +134,7 @@ class ControlClient:
             return {"ok": False, "error": "Empty response."}
         return json.loads(line.decode("utf-8"))
 
-    def send(self, cmd: JSONDict) -> JSONDict:
+    def send(self, cmd: dict[str, object]) -> dict[str, object]:
         """Synchronous wrapper around async control request."""
         return asyncio.run(self._send_async(cmd))
 

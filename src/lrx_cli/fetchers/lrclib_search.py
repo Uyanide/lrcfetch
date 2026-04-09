@@ -15,7 +15,6 @@ from .selection import SearchCandidate, select_best
 from ..models import TrackMeta, LyricResult, CacheStatus
 from ..lrc import LRCData
 from ..config import (
-    HTTP_TIMEOUT,
     TTL_UNSYNCED,
     TTL_NOT_FOUND,
     UA_LRX,
@@ -73,7 +72,7 @@ class LrclibSearchFetcher(BaseFetcher):
         had_error = False
 
         try:
-            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=self._general.http_timeout) as client:
 
                 async def _query(params: dict[str, str]) -> tuple[list[dict], bool]:
                     url = f"{_LRCLIB_SEARCH_URL}?{urlencode(params)}"

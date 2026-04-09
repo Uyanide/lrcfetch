@@ -10,6 +10,7 @@ from .base import BaseAuthenticator
 from .spotify import SpotifyAuthenticator
 from .musixmatch import MusixmatchAuthenticator
 from .dummy import DummyAuthenticator
+from ..config import AppConfig
 
 __all__ = [
     "BaseAuthenticator",
@@ -20,11 +21,13 @@ __all__ = [
 ]
 
 
-def create_authenticators(cache) -> dict[str, BaseAuthenticator]:
-    """Factory function to create authenticators with cache access."""
+def create_authenticators(cache, config: AppConfig) -> dict[str, BaseAuthenticator]:
+    """Factory function to create authenticators with injected config."""
     return {
-        "dummy": DummyAuthenticator(),
-        "spotify": SpotifyAuthenticator(cache),
-        "musixmatch": MusixmatchAuthenticator(cache),
-        "qqmusic": QQMusicAuthenticator(),
+        "dummy": DummyAuthenticator(cache, config.credentials, config.general),
+        "spotify": SpotifyAuthenticator(cache, config.credentials, config.general),
+        "musixmatch": MusixmatchAuthenticator(
+            cache, config.credentials, config.general
+        ),
+        "qqmusic": QQMusicAuthenticator(cache, config.credentials, config.general),
     }

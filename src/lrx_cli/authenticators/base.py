@@ -7,9 +7,19 @@ Description: Base class for credential authenticators.
 from abc import ABC, abstractmethod
 from typing import Optional
 
+from ..cache import CacheEngine
+from ..config import CredentialConfig, GeneralConfig
+
 
 class BaseAuthenticator(ABC):
     """Manages obtaining, caching, and refreshing a credential for one provider."""
+
+    def __init__(
+        self, cache: CacheEngine, credentials: CredentialConfig, general: GeneralConfig
+    ) -> None:
+        self._cache = cache
+        self._credentials = credentials
+        self._general = general
 
     @property
     @abstractmethod

@@ -8,6 +8,8 @@ from abc import ABC, abstractmethod
 from typing import Optional
 from dataclasses import dataclass
 
+from ..authenticators.base import BaseAuthenticator
+from ..config import GeneralConfig
 from ..models import CacheStatus, TrackMeta, LyricResult
 
 
@@ -38,6 +40,12 @@ class FetchResult:
 
 
 class BaseFetcher(ABC):
+    def __init__(
+        self, general: GeneralConfig, auth: Optional[BaseAuthenticator] = None
+    ) -> None:
+        self._general = general
+        self._auth = auth
+
     @property
     @abstractmethod
     def source_name(self) -> str:

@@ -17,12 +17,8 @@ from loguru import logger
 
 from .config import (
     DB_PATH,
-    PLAYER_BLACKLIST,
-    PREFERRED_PLAYER,
-    WATCH_CALIBRATION_INTERVAL_S,
-    WATCH_DEBOUNCE_MS,
-    WATCH_POSITION_TICK_MS,
-    WATCH_SOCKET_PATH,
+    AppConfig,
+    load_config,
     enable_debug,
 )
 from .models import TrackMeta
@@ -32,7 +28,6 @@ from .fetchers import FetcherMethodType
 from .lrc import get_sidecar_path
 from .watch import WatchCoordinator
 from .watch.control import ControlClient, parse_delta
-from .watch.options import WatchOptions
 from .watch.view.pipe import PipeOutput
 
 
@@ -54,21 +49,10 @@ watch_app.command(ctl_app)
 # Global state set by the meta launcher
 _player: str | None = None
 _db_path: str | None = None
+_app_config: AppConfig = AppConfig()
 
 # Will be initialized before any command runs, safe to set to None here
 manager: LrcManager = None  # type: ignore
-
-
-def _build_watch_options() -> WatchOptions:
-    """Build runtime watch options from CLI composition root."""
-    return WatchOptions(
-        preferred_player=PREFERRED_PLAYER,
-        player_blacklist=tuple(PLAYER_BLACKLIST),
-        debounce_ms=WATCH_DEBOUNCE_MS,
-        position_tick_ms=WATCH_POSITION_TICK_MS,
-        calibration_interval_s=WATCH_CALIBRATION_INTERVAL_S,
-        socket_path=WATCH_SOCKET_PATH,
-    )
 
 
 @app.meta.default
@@ -95,13 +79,13 @@ def launcher(
         ),
     ] = None,
 ):
-    global _player, _db_path
+    global _player, _db_path, _app_config, manager
     if debug:
         enable_debug()
     _player = player
     _db_path = str(Path(db_path).resolve()) if db_path else DB_PATH
-    global manager
-    manager = LrcManager(db_path=_db_path)
+    _app_config = load_config()
+    manager = LrcManager(db_path=_db_path, config=_app_config)
     app(tokens)
 
 
@@ -147,7 +131,11 @@ def fetch(
     ] = False,
 ):
     """Fetch and print lyrics for the currently playing track."""
-    track = get_current_track(_player)
+    track = get_current_track(
+        _player,
+        preferred_player=_app_config.general.preferred_player,
+        player_blacklist=_app_config.general.player_blacklist,
+    )
 
     if not track:
         logger.error("No active playing track found.")
@@ -331,7 +319,11 @@ def export(
     ] = False,
 ):
     """Export lyrics of the current track to a .lrc file."""
-    track = get_current_track(_player)
+    track = get_current_track(
+        _player,
+        preferred_player=_app_config.general.preferred_player,
+        player_blacklist=_app_config.general.player_blacklist,
+    )
     if not track:
         logger.error("No active playing track found.")
         sys.exit(1)
@@ -416,13 +408,12 @@ def pipe(
         _player or "<none>",
     )
     output = PipeOutput(before=max(0, before), after=max(0, after))
-    options = _build_watch_options()
     try:
         session = WatchCoordinator(
             manager,
             output,
             player_hint=_player,
-            options=options,
+            config=_app_config,
         )
         success = asyncio.run(session.run())
         if not success:
@@ -439,7 +430,7 @@ def offset(delta: str) -> None:
         logger.error(parse_error or "Invalid offset delta")
         sys.exit(1)
 
-    response = ControlClient(options=_build_watch_options()).send(
+    response = ControlClient(config=_app_config).send(
         {"cmd": "offset", "delta": parsed_delta}
     )
     if not response.get("ok"):
@@ -451,7 +442,7 @@ def offset(delta: str) -> None:
 @ctl_app.command
 def status() -> None:
     """Print current watch session status as JSON."""
-    response = ControlClient(options=_build_watch_options()).send({"cmd": "status"})
+    response = ControlClient(config=_app_config).send({"cmd": "status"})
     if not response.get("ok"):
         logger.error(response.get("error", "Unknown error"))
         sys.exit(1)
@@ -480,7 +471,11 @@ def query(
             print()
         return
 
-    track = get_current_track(_player)
+    track = get_current_track(
+        _player,
+        preferred_player=_app_config.general.preferred_player,
+        player_blacklist=_app_config.general.player_blacklist,
+    )
     if not track:
         logger.error("No active playing track found.")
         sys.exit(1)
@@ -500,7 +495,11 @@ def clear(
         manager.cache.clear_all()
         return
 
-    track = get_current_track(_player)
+    track = get_current_track(
+        _player,
+        preferred_player=_app_config.general.preferred_player,
+        player_blacklist=_app_config.general.player_blacklist,
+    )
     if not track:
         logger.error("No active playing track found.")
         sys.exit(1)
@@ -590,7 +589,11 @@ def confidence(
         logger.error("Score must be between 0 and 100.")
         sys.exit(1)
 
-    track = get_current_track(_player)
+    track = get_current_track(
+        _player,
+        preferred_player=_app_config.general.preferred_player,
+        player_blacklist=_app_config.general.player_blacklist,
+    )
     if not track:
         logger.error("No active playing track found.")
         sys.exit(1)
@@ -614,7 +617,11 @@ def insert(
     ] = None,
 ):
     """Manually insert lyrics into the cache for the current track."""
-    track = get_current_track(_player)
+    track = get_current_track(
+        _player,
+        preferred_player=_app_config.general.preferred_player,
+        player_blacklist=_app_config.general.player_blacklist,
+    )
     if not track:
         logger.error("No active playing track found.")
         sys.exit(1)
