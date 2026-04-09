@@ -292,6 +292,12 @@ class WatchCoordinator:
         started_fetch = False
         if track is not None and (player_changed or track_changed):
             started_fetch = self._request_fetch_for_active_track("track-changed")
+        elif (
+            track is not None
+            and self._model.lyrics is None
+            and self._model.status == "paused"
+        ):
+            started_fetch = self._request_fetch_for_active_track("resume-playing")
 
         if self._model.lyrics is not None:
             self._model.status = "ok"
