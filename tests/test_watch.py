@@ -57,7 +57,7 @@ def test_active_player_selector_prefers_single_playing() -> None:
         ),
     }
     assert (
-        ActivePlayerSelector.select(players, None, TEST_CONFIG)
+        ActivePlayerSelector.select(players, None, TEST_CONFIG.general.preferred_player)
         == "org.mpris.MediaPlayer2.bar"
     )
 
@@ -80,7 +80,7 @@ def test_active_player_selector_uses_last_active_when_no_playing() -> None:
         ActivePlayerSelector.select(
             players,
             "org.mpris.MediaPlayer2.bar",
-            TEST_CONFIG,
+            TEST_CONFIG.general.preferred_player,
         )
         == "org.mpris.MediaPlayer2.bar"
     )
@@ -182,11 +182,11 @@ def test_control_server_and_client_roundtrip(tmp_path: Path) -> None:
                 return {"ok": True, "offset_ms": self.offset, "lyrics_status": "idle"}
 
         socket_path = tmp_path / "watch.sock"
-        server = ControlServer(socket_path=socket_path, config=TEST_CONFIG)
+        server = ControlServer(socket_path=str(socket_path))
         session = _Session()
 
         await server.start(session)  # type: ignore
-        client = ControlClient(socket_path=socket_path, config=TEST_CONFIG)
+        client = ControlClient(socket_path=str(socket_path))
         r1 = await client._send_async({"cmd": "offset", "delta": 200})
         r2 = await client._send_async({"cmd": "status"})
         await server.stop()
@@ -320,7 +320,9 @@ def test_session_fetches_on_resume_playing_without_lyrics() -> None:
                 async def _on_result(_lyrics) -> None:
                     return None
 
-                super().__init__(_fetch, _on_fetching, _on_result, TEST_CONFIG)
+                super().__init__(
+                    _fetch, _on_fetching, _on_result, TEST_CONFIG.watch.debounce_ms
+                )
                 self.requested = []
 
             def request(self, track: TrackMeta) -> None:

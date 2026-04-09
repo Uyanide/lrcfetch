@@ -126,12 +126,12 @@ class WatchCoordinator:
             player_blacklist=self._config.general.player_blacklist,
         )
 
-        self._control = ControlServer(config=self._config)
+        self._control = ControlServer(socket_path=config.watch.socket_path)
         self._player_monitor = PlayerMonitor(
             on_players_changed=self._on_player_change,
             on_seeked=self._on_seeked,
             on_playback_status=self._on_playback_status,
-            config=self._config,
+            player_blacklist=self._config.general.player_blacklist,
             target=self._target,
         )
         self._tracker = PositionTracker(
@@ -143,7 +143,7 @@ class WatchCoordinator:
             fetch_func=self._fetch_lyrics,
             on_fetching=self._on_fetching,
             on_result=self._on_lyrics_update,
-            config=self._config,
+            watch_debounce_ms=self._config.watch.debounce_ms,
         )
 
     async def run(self) -> bool:
@@ -234,7 +234,7 @@ class WatchCoordinator:
         selected = ActivePlayerSelector.select(
             self._player_monitor.players,
             self._model.active_player,
-            self._config,
+            self._config.general.preferred_player,
         )
         self._model.active_player = selected
 

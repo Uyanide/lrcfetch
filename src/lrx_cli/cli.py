@@ -430,7 +430,7 @@ def offset(delta: str) -> None:
         logger.error(parse_error or "Invalid offset delta")
         sys.exit(1)
 
-    response = ControlClient(config=_app_config).send(
+    response = ControlClient(_app_config.watch.socket_path).send(
         {"cmd": "offset", "delta": parsed_delta}
     )
     if not response.get("ok"):
@@ -442,7 +442,7 @@ def offset(delta: str) -> None:
 @ctl_app.command
 def status() -> None:
     """Print current watch session status as JSON."""
-    response = ControlClient(config=_app_config).send({"cmd": "status"})
+    response = ControlClient(_app_config.watch.socket_path).send({"cmd": "status"})
     if not response.get("ok"):
         logger.error(response.get("error", "Unknown error"))
         sys.exit(1)

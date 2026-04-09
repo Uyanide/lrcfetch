@@ -7,8 +7,6 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from ..config import AppConfig
-
 if TYPE_CHECKING:
     from .session import WatchCoordinator
 
@@ -19,13 +17,9 @@ class ControlServer:
     _socket_path: Path
     _server: asyncio.AbstractServer | None
 
-    def __init__(
-        self,
-        config: AppConfig,
-        socket_path: Path | None = None,
-    ) -> None:
+    def __init__(self, socket_path: str) -> None:
         """Initialize control server with socket path from config or explicit override."""
-        self._socket_path: Path = socket_path or Path(config.watch.socket_path)
+        self._socket_path = Path(socket_path)
         self._server: asyncio.AbstractServer | None = None
 
     async def start(self, session: "WatchCoordinator") -> bool:
@@ -107,13 +101,9 @@ class ControlClient:
 
     _socket_path: Path
 
-    def __init__(
-        self,
-        config: AppConfig,
-        socket_path: Path | None = None,
-    ) -> None:
+    def __init__(self, socket_path: str) -> None:
         """Initialize control client with socket path from config or explicit override."""
-        self._socket_path: Path = socket_path or Path(config.watch.socket_path)
+        self._socket_path = Path(socket_path)
 
     async def _send_async(self, cmd: dict[str, object]) -> dict[str, object]:
         """Send one JSON command to control server and return JSON response."""

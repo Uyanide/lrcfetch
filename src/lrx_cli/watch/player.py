@@ -9,7 +9,6 @@ from dbus_next.constants import BusType
 from dbus_next.message import Message
 from loguru import logger
 
-from ..config import AppConfig
 from ..models import TrackMeta
 
 
@@ -75,7 +74,7 @@ def _keyword_match(text: str, keyword: str) -> bool:
 class PlayerMonitor:
     """Tracks MPRIS players and forwards signal-driven state updates to session callbacks."""
 
-    _config: AppConfig
+    _player_blacklist: tuple[str, ...]
     _on_players_changed: Callable[[], None]
     _on_seeked: Callable[[str, int], None]
     _on_playback_status: Callable[[str, str], None]
@@ -89,17 +88,15 @@ class PlayerMonitor:
         on_players_changed: Callable[[], None],
         on_seeked: Callable[[str, int], None],
         on_playback_status: Callable[[str, str], None],
-        config: AppConfig,
+        player_blacklist: tuple[str, ...],
         target: Optional[PlayerTarget] = None,
     ) -> None:
         """Initialize monitor callbacks, runtime options, and player target filter."""
-        self._config = config
+        self._player_blacklist = player_blacklist
         self._on_players_changed = on_players_changed
         self._on_seeked = on_seeked
         self._on_playback_status = on_playback_status
-        self._target = target or PlayerTarget(
-            player_blacklist=self._config.general.player_blacklist
-        )
+        self._target = target or PlayerTarget(player_blacklist=self._player_blacklist)
         self.players: dict[str, PlayerState] = {}
         self._bus: MessageBus | None = None
         self._props_cache: dict[str, object] = {}
@@ -183,10 +180,7 @@ class PlayerMonitor:
             for name in reply.body[0]:
                 if not name.startswith("org.mpris.MediaPlayer2."):
                     continue
-                if any(
-                    x.lower() in name.lower()
-                    for x in self._config.general.player_blacklist
-                ):
+                if any(x.lower() in name.lower() for x in self._player_blacklist):
                     continue
                 if not self._target.allows(name):
                     continue
@@ -389,7 +383,7 @@ class ActivePlayerSelector:
     def select(
         players: dict[str, PlayerState],
         last_active: str | None,
-        config: AppConfig,
+        preferred_player: str,
     ) -> str | None:
         """Select active player by playing state, preferred keyword, and continuity."""
         if not players:
@@ -399,7 +393,7 @@ class ActivePlayerSelector:
         if len(playing) == 1:
             return playing[0]
 
-        preferred = config.general.preferred_player.lower().strip()
+        preferred = preferred_player.lower().strip()
         candidates = playing if playing else list(players.keys())
         if preferred:
             for name in candidates:
