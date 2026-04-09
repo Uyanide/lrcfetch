@@ -290,9 +290,7 @@ class WatchCoordinator:
             return
 
         started_fetch = False
-        if track is not None and (
-            player_changed or track_changed or self._model.lyrics is None
-        ):
+        if track is not None and (player_changed or track_changed):
             started_fetch = self._request_fetch_for_active_track("track-changed")
 
         if self._model.lyrics is not None:
