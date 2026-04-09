@@ -13,6 +13,7 @@ class PipeOutput(BaseOutput):
 
     before: int = 0
     after: int = 0
+    no_newline: bool = False
 
     def _window_size(self) -> int:
         """Return rendered lyric window size."""
@@ -81,5 +82,5 @@ class PipeOutput(BaseOutput):
             lines = self._render_lyrics(state)
 
         for line in lines:
-            print(line)
+            sys.stdout.write(line + ("\n" if not self.no_newline else ""))
         sys.stdout.flush()

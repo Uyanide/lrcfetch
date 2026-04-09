@@ -390,24 +390,34 @@ def pipe(
     before: Annotated[
         int,
         cyclopts.Parameter(
-            name="--before",
+            name=["--before", "-b"],
             help="Number of lyric lines to show before current line.",
         ),
     ] = 0,
     after: Annotated[
         int,
         cyclopts.Parameter(
-            name="--after",
+            name=["--after", "-a"],
             help="Number of lyric lines to show after current line.",
         ),
     ] = 0,
+    no_newline: Annotated[
+        bool,
+        cyclopts.Parameter(
+            name=["--no-newline", "-n"],
+            negative="",
+            help="Do not append a new line after the lyric output.",
+        ),
+    ] = False,
 ):
     """Watch active player and continuously print lyric window to stdout."""
     logger.info(
         "Starting watch pipe (player filter: {})",
         _player or "<none>",
     )
-    output = PipeOutput(before=max(0, before), after=max(0, after))
+    output = PipeOutput(
+        before=max(0, before), after=max(0, after), no_newline=no_newline
+    )
     try:
         session = WatchCoordinator(
             manager,
