@@ -1,14 +1,56 @@
-"""Shared ranking rules for LyricResult selection.
-
-This module centralizes how positive lyric results are compared so cache/core
-and other callers use the same precedence and edge-case handling.
+"""
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-04-10 17:06:37
+Description: Utility functions
 """
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+from urllib.parse import unquote
+from pathlib import Path
 
-from .models import CacheStatus, LyricResult
+from .models import CacheStatus
+
+if TYPE_CHECKING:
+    from .models import LyricResult
+
+
+# Paths
+
+
+def get_audio_path(audio_url: str, ensure_exists: bool = False) -> Optional[Path]:
+    """Convert file:// URL to Path, return None if invalid or (if ensure_exists) file doesn't exist."""
+    if not audio_url.startswith("file://"):
+        return None
+    file_path = unquote(audio_url.replace("file://", "", 1))
+    path = Path(file_path)
+    if ensure_exists and not path.exists():
+        return None
+    return path
+
+
+def get_sidecar_path(
+    audio_url: str,
+    ensure_audio_exists: bool = False,
+    ensure_exists: bool = False,
+    extension: str = ".lrc",
+) -> Optional[Path]:
+    """Given a file:// URL, return the corresponding .lrc sidecar path.
+
+    If ensure_audio_exists is True, return None if the audio file does not exist.
+    If ensure_exists is True, return None if the .lrc file does not exist.
+    """
+    audio_path = get_audio_path(audio_url, ensure_exists=ensure_audio_exists)
+    if not audio_path:
+        return None
+    lrc_path = audio_path.with_suffix(extension)
+    if ensure_exists and not lrc_path.exists():
+        return None
+    return lrc_path
+
+
+# Ranking
 
 
 def is_positive_status(status: CacheStatus) -> bool:

@@ -28,7 +28,7 @@ from .config import (
 )
 from .models import TrackMeta, LyricResult, CacheStatus
 from .enrichers import create_enrichers, enrich_track
-from .ranking import is_better_result, select_best_positive
+from .utils import is_better_result, select_best_positive
 
 
 # Maps CacheStatus to the default TTL used when storing results

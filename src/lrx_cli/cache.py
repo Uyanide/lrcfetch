@@ -24,7 +24,7 @@ from .config import (
     SLOT_UNSYNCED,
 )
 from .models import TrackMeta, LyricResult, CacheStatus
-from .ranking import is_positive_status, select_best_positive
+from .utils import is_positive_status, select_best_positive
 
 
 _ALL_SLOTS = (SLOT_SYNCED, SLOT_UNSYNCED)

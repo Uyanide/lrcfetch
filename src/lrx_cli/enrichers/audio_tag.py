@@ -12,7 +12,7 @@ from mutagen._file import File, FileType
 
 from .base import BaseEnricher
 from ..models import TrackMeta
-from ..lrc import get_audio_path
+from ..utils import get_audio_path
 
 
 class AudioTagEnricher(BaseEnricher):

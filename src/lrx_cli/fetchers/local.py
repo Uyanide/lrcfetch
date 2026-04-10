@@ -16,7 +16,8 @@ from mutagen.flac import FLAC
 
 from .base import BaseFetcher, FetchResult
 from ..models import CacheStatus, TrackMeta, LyricResult
-from ..lrc import get_audio_path, get_sidecar_path, LRCData
+from ..lrc import LRCData
+from ..utils import get_audio_path, get_sidecar_path
 
 
 class LocalFetcher(BaseFetcher):

@@ -12,7 +12,7 @@ from loguru import logger
 
 from .base import BaseEnricher
 from ..models import TrackMeta
-from ..lrc import get_audio_path
+from ..utils import get_audio_path
 
 
 # Common track-number prefixes: "01 - ", "01. ", "1 - ", etc.

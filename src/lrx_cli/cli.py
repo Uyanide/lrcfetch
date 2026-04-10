@@ -23,11 +23,11 @@ from .config import (
     load_config,
     enable_debug,
 )
+from .utils import get_sidecar_path
 from .models import TrackMeta
 from .mpris import get_current_track
 from .core import LrcManager
 from .fetchers import FetcherMethodType
-from .lrc import get_sidecar_path
 from .watch import WatchCoordinator
 from .watch.control import ControlClient, parse_delta
 from .watch.view.pipe import PipeOutput

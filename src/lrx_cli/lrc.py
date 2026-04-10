@@ -9,9 +9,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 import re
-from pathlib import Path
 from typing import Optional
-from urllib.parse import unquote
 
 from .models import CacheStatus
 
@@ -465,34 +463,3 @@ class LRCData:
         """
         normalized = self.normalize()
         return self._serialize_lines(normalized._lines, include_word_sync=False)
-
-
-def get_audio_path(audio_url: str, ensure_exists: bool = False) -> Optional[Path]:
-    """Convert file:// URL to Path, return None if invalid or (if ensure_exists) file doesn't exist."""
-    if not audio_url.startswith("file://"):
-        return None
-    file_path = unquote(audio_url.replace("file://", "", 1))
-    path = Path(file_path)
-    if ensure_exists and not path.exists():
-        return None
-    return path
-
-
-def get_sidecar_path(
-    audio_url: str,
-    ensure_audio_exists: bool = False,
-    ensure_exists: bool = False,
-    extension: str = ".lrc",
-) -> Optional[Path]:
-    """Given a file:// URL, return the corresponding .lrc sidecar path.
-
-    If ensure_audio_exists is True, return None if the audio file does not exist.
-    If ensure_exists is True, return None if the .lrc file does not exist.
-    """
-    audio_path = get_audio_path(audio_url, ensure_exists=ensure_audio_exists)
-    if not audio_path:
-        return None
-    lrc_path = audio_path.with_suffix(extension)
-    if ensure_exists and not lrc_path.exists():
-        return None
-    return lrc_path
