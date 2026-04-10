@@ -103,12 +103,17 @@ async def _select_player(
         return matched[0] if matched else None
 
     # auto-selection: apply blacklist before choosing
-    candidates = []
-    for p in all_names:
-        if any(x.lower() in p.lower() for x in player_blacklist):
-            logger.info(f"Excluding blacklisted player: {p}")
-        else:
-            candidates.append(p)
+    # candidates = []
+    # for p in all_names:
+    #     if any(x.lower() in p.lower() for x in player_blacklist):
+    #         logger.info(f"Excluding blacklisted player: {p}")
+    #     else:
+    #         candidates.append(p)
+    candidates = [
+        p
+        for p in all_names
+        if not any(x.lower() in p.lower() for x in player_blacklist)
+    ]
     playing: list[str] = []
     for p in candidates:
         status = await _get_playback_status(bus, p)

@@ -178,7 +178,7 @@ class PlayerMonitor:
                 if not hint_active and any(
                     x.lower() in name.lower() for x in self._player_blacklist
                 ):
-                    logger.info(f"Excluding blacklisted player: {name}")
+                    # logger.info(f"Excluding blacklisted player: {name}")
                     continue
                 if not self._target.allows(name):
                     continue
