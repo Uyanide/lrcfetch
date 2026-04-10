@@ -155,16 +155,25 @@ uv venv .venv
 uv sync
 ```
 
-Run tests without network calls:
+Run tests (without network access):
 
 ```bash
-uv run pytest -m "not network"
+uv run poe test
 ```
 
-or run full tests. The **REAL EXTERNAL** API calls will be made and some of them will be skipped if the required credentials are not configured as [above](#configuration). This might be useful to verify that the lyric sources are still valid and working as expected:
+Run tests including **REAL EXTERNAL** API calls. Some of them will be skipped
+if the required credentials are not configured as [above](#configuration). This might be useful
+to verify whether the lyric sources are still valid and working as expected:
 
 ```bash
-uv run pytest
+uv run poe test-api
+```
+
+Other unified tasks:
+
+```bash
+uv run poe fmt      # ruff format
+uv run poe lint     # ruff check + pyright
 ```
 
 Run the CLI:

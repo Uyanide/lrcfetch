@@ -24,4 +24,20 @@ lrx = "lrx_cli.cli:run"
 ignore = ["E402"] # Since there are headers
 
 [dependency-groups]
-dev = ["pytest>=9.0.2", "ruff>=0.15.8"]
+dev = [
+    "poethepoet>=0.44.0",
+    "pyright>=1.1.406",
+    "pytest>=9.0.2",
+    "ruff>=0.15.8",
+]
+
+[tool.poe.tasks]
+fmt      = "ruff format ."
+lint     = { shell = "ruff check . && pyright" }
+test     = "pytest"
+test-api = "pytest -m 'network or not network'"
+
+[tool.pyright]
+pythonVersion    = "3.13"
+include          = ["src", "tests", "misc"]
+typeCheckingMode = "standard"
