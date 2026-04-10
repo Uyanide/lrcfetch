@@ -71,7 +71,7 @@ def launcher(
         str | None,
         cyclopts.Parameter(
             name=["--player", "-p"],
-            help="Target a specific MPRIS player using its DBus name or a portion thereof.",
+            help="Target a specific MPRIS player using its DBus name or a portion thereof. Bypasses player_blacklist.",
         ),
     ] = None,
     db_path: Annotated[

@@ -129,10 +129,7 @@ class WatchCoordinator:
         self._emit_scheduled = False
         self._calibration_task = None
 
-        self._target = PlayerTarget(
-            hint=player_hint,
-            player_blacklist=self._config.general.player_blacklist,
-        )
+        self._target = PlayerTarget(hint=player_hint)
 
         self._control = ControlServer(socket_path=config.watch.socket_path)
         self._player_monitor = PlayerMonitor(
@@ -156,11 +153,6 @@ class WatchCoordinator:
 
     async def run(self) -> bool:
         """Run watch workflow and return success flag."""
-        target_issue = self._target.validation_error()
-        if target_issue:
-            logger.error(target_issue)
-            return False
-
         logger.info(
             "watch session starting (player filter: {})",
             self._player_hint or "<none>",

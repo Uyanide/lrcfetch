@@ -17,6 +17,7 @@ from dbus_next.message import Message
 from loguru import logger
 
 from ..models import TrackMeta
+from ..mpris import pick_active_player
 
 
 def _variant_value(item: object) -> object | None:
@@ -40,25 +41,6 @@ class PlayerTarget:
     """Constraint for choosing which players are visible to watch."""
 
     hint: Optional[str] = None
-    player_blacklist: tuple[str, ...] = ()
-
-    def validation_error(self) -> str | None:
-        """Return validation message when hint conflicts with blacklist, else None."""
-        normalized_hint = self.normalized_hint
-        if not normalized_hint:
-            return None
-        for blocked in self.player_blacklist:
-            normalized_blocked = blocked.strip().lower()
-            if not normalized_blocked:
-                continue
-            if _keyword_match(normalized_hint, normalized_blocked) or _keyword_match(
-                normalized_blocked, normalized_hint
-            ):
-                return (
-                    f"Requested player '{self.hint}' is blocked by "
-                    f"PLAYER_BLACKLIST entry '{blocked}'."
-                )
-        return None
 
     @property
     def normalized_hint(self) -> str:
@@ -103,7 +85,7 @@ class PlayerMonitor:
         self._on_players_changed = on_players_changed
         self._on_seeked = on_seeked
         self._on_playback_status = on_playback_status
-        self._target = target or PlayerTarget(player_blacklist=self._player_blacklist)
+        self._target = target or PlayerTarget()
         self.players: dict[str, PlayerState] = {}
         self._bus: MessageBus | None = None
         self._props_cache: dict[str, object] = {}
@@ -169,7 +151,11 @@ class PlayerMonitor:
                 logger.debug(f"Failed to add DBus match rule {rule}: {e}")
 
     async def _list_mpris_players(self) -> list[str]:
-        """List visible MPRIS players after applying blacklist and target filter."""
+        """List visible MPRIS players after applying target filter and optional blacklist.
+
+        The blacklist is skipped when an explicit player hint is active so that
+        ``--player`` can target any player regardless of PLAYER_BLACKLIST.
+        """
         if not self._bus:
             return []
         try:
@@ -184,10 +170,14 @@ class PlayerMonitor:
             if not reply or not reply.body:
                 return []
             out: list[str] = []
+            hint_active = bool(self._target.normalized_hint)
             for name in reply.body[0]:
                 if not name.startswith("org.mpris.MediaPlayer2."):
                     continue
-                if any(x.lower() in name.lower() for x in self._player_blacklist):
+                # --player bypasses the blacklist; only filter when no hint is given
+                if not hint_active and any(
+                    x.lower() in name.lower() for x in self._player_blacklist
+                ):
                     continue
                 if not self._target.allows(name):
                     continue
@@ -406,23 +396,6 @@ class ActivePlayerSelector:
         """Select active player by playing state, preferred keyword, and continuity."""
         if not players:
             return None
-
+        all_names = list(players.keys())
         playing = [name for name, st in players.items() if st.status == "Playing"]
-        if len(playing) == 1:
-            # unambiguous — only one player is currently playing
-            return playing[0]
-
-        preferred = preferred_player.lower().strip()
-        # when multiple players are playing, narrow candidates to those; otherwise
-        # fall back to all known players so a paused preferred player still wins
-        candidates = playing if playing else list(players.keys())
-        if preferred:
-            for name in candidates:
-                if preferred in name.lower():
-                    return name
-
-        # preserve the last selection to avoid jitter when nothing else changes
-        if last_active and last_active in players:
-            return last_active
-
-        return candidates[0] if candidates else None
+        return pick_active_player(all_names, playing, preferred_player, last_active)

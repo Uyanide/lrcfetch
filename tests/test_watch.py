@@ -41,14 +41,10 @@ def test_player_target_filters_by_case_insensitive_substring() -> None:
     assert target.allows("org.mpris.MediaPlayer2.mpd") is False
 
 
-def test_player_target_reports_blacklisted_hint() -> None:
-    target = PlayerTarget("spot", player_blacklist=("spotify",))
-    assert target.validation_error() is not None
-
-
-def test_player_target_non_blacklisted_hint_is_valid() -> None:
-    target = PlayerTarget("mpd", player_blacklist=("spotify",))
-    assert target.validation_error() is None
+def test_player_target_hint_allows_regardless_of_blacklist() -> None:
+    # --player bypasses PLAYER_BLACKLIST; PlayerTarget.allows() reflects the hint only
+    target = PlayerTarget("spot")
+    assert target.allows("org.mpris.MediaPlayer2.spotify") is True
 
 
 # ActivePlayerSelector

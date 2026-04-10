@@ -17,11 +17,8 @@ from .config import DEFAULT_PLAYER_BLACKLIST, DEFAULT_PREFERRED_PLAYER
 from .models import TrackMeta
 
 
-async def _list_mpris_players(
-    bus: MessageBus,
-    player_blacklist: tuple[str, ...],
-) -> List[str]:
-    """List all MPRIS player bus names, excluding blacklisted entries."""
+async def _list_mpris_players(bus: MessageBus) -> List[str]:
+    """List all MPRIS player bus names without any filtering."""
     try:
         reply = await bus.call(
             Message(
@@ -34,10 +31,7 @@ async def _list_mpris_players(
         if not reply or not reply.body:
             return []
         return [
-            name
-            for name in reply.body[0]
-            if name.startswith("org.mpris.MediaPlayer2.")
-            and not any(x.lower() in name.lower() for x in player_blacklist)
+            name for name in reply.body[0] if name.startswith("org.mpris.MediaPlayer2.")
         ]
     except Exception as e:
         logger.error(f"Failed to list DBus names: {e}")
@@ -61,6 +55,32 @@ async def _get_playback_status(bus: MessageBus, player_name: str) -> Optional[st
         return None
 
 
+def pick_active_player(
+    all_names: list[str],
+    playing: list[str],
+    preferred: str,
+    last_active: str | None = None,
+) -> str | None:
+    """Select the best MPRIS player by play state, preferred keyword, and continuity.
+
+    Priority: single playing > preferred keyword among playing > preferred keyword
+    among all candidates > last active > first candidate.
+    """
+    if not all_names:
+        return None
+    if len(playing) == 1:
+        return playing[0]
+    candidates = playing if playing else all_names
+    preferred_lower = preferred.lower().strip()
+    if preferred_lower:
+        for name in candidates:
+            if preferred_lower in name.lower():
+                return name
+    if last_active and last_active in all_names:
+        return last_active
+    return candidates[0] if candidates else None
+
+
 async def _select_player(
     bus: MessageBus,
     specific_player: Optional[str],
@@ -69,38 +89,33 @@ async def _select_player(
 ) -> Optional[str]:
     """Select the best MPRIS player.
 
-    When specific_player is given, filter by name match.
+    When specific_player is given, it bypasses player_blacklist and filters by name.
     Otherwise: prefer the currently playing player. If multiple are playing,
     prefer the one matching preferred_player (default: spotify).
     """
-    players = await _list_mpris_players(bus, player_blacklist)
-    if not players:
+    all_names = await _list_mpris_players(bus)
+    if not all_names:
         return None
 
     if specific_player:
-        players = [p for p in players if specific_player.lower() in p.lower()]
-        return players[0] if players else None
+        # --player bypasses player_blacklist so the user can target any player
+        matched = [p for p in all_names if specific_player.lower() in p.lower()]
+        return matched[0] if matched else None
 
-    # Check playback status for each player
-    playing = []
-    for p in players:
+    # auto-selection: apply blacklist before choosing
+    candidates = [
+        p
+        for p in all_names
+        if not any(x.lower() in p.lower() for x in player_blacklist)
+    ]
+    playing: list[str] = []
+    for p in candidates:
         status = await _get_playback_status(bus, p)
         logger.debug(f"Player {p}: {status}")
         if status == "Playing":
             playing.append(p)
 
-    candidates = playing if playing else players
-
-    if len(candidates) == 1:
-        return candidates[0]
-
-    # Multiple candidates: prefer preferred_player
-    preferred = preferred_player.lower()
-    if preferred:
-        for p in candidates:
-            if preferred in p.lower():
-                return p
-    return candidates[0]
+    return pick_active_player(candidates, playing, preferred_player)
 
 
 async def _fetch_metadata_dbus(
