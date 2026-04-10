@@ -111,7 +111,7 @@ optional; all values have defaults. Unknown keys are rejected with an error.
 
 ```toml
 [general]
-preferred_player  = "spotify"       # preferred MPRIS player when multiple are active
+preferred_player  = ""              # preferred MPRIS player when multiple are active
 player_blacklist  = ["firefox", "zen", "chrome", "chromium", "vivaldi", "edge", "opera", "mpv"]  # bypassed by --player/-p
 http_timeout      = 10.0            # seconds
 

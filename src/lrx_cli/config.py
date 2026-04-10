@@ -69,7 +69,7 @@ MUSIXMATCH_COOLDOWN_MS = 600_000  # 10 minutes
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 
-DEFAULT_PREFERRED_PLAYER = "spotify"
+DEFAULT_PREFERRED_PLAYER = ""
 DEFAULT_PLAYER_BLACKLIST: tuple[str, ...] = (
     "firefox",
     "zen",
