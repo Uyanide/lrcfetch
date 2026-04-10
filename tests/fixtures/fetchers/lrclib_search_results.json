@@ -1,0 +1,20 @@
+[
+    {
+        "id": 1,
+        "trackName": "My Love",
+        "artistName": "Westlife",
+        "albumName": "Coast To Coast",
+        "duration": 231.847,
+        "syncedLyrics": "[00:01.00]hello",
+        "plainLyrics": "hello"
+    },
+    {
+        "id": 2,
+        "trackName": "My Love (Live)",
+        "artistName": "Westlife",
+        "albumName": "Live",
+        "duration": 262.0,
+        "syncedLyrics": "",
+        "plainLyrics": "hello"
+    }
+]

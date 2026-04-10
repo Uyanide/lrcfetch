@@ -1,0 +1,9 @@
+{
+  "lyrics": {
+    "syncType": "UNSYNCED",
+    "lines": [
+      {"startTimeMs": "0", "words": "plain one"},
+      {"startTimeMs": "0", "words": "plain two"}
+    ]
+  }
+}

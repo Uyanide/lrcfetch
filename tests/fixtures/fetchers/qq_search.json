@@ -1,0 +1,33 @@
+{
+    "code": 0,
+    "data": {
+        "list": [
+            {
+                "mid": "mid1",
+                "interval": 232,
+                "name": "My Love",
+                "singer": [
+                    {
+                        "name": "Westlife"
+                    }
+                ],
+                "album": {
+                    "name": "Coast To Coast"
+                }
+            },
+            {
+                "mid": "mid2",
+                "interval": 248,
+                "name": "My Love (Album Version)",
+                "singer": [
+                    {
+                        "name": "Little Texas"
+                    }
+                ],
+                "album": {
+                    "name": "Greatest Hits"
+                }
+            }
+        ]
+    }
+}

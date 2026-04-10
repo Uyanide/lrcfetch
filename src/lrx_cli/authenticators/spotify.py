@@ -18,6 +18,7 @@ from ..config import CredentialConfig, GeneralConfig, UA_BROWSER
 
 _SPOTIFY_TOKEN_URL = "https://open.spotify.com/api/token"
 _SPOTIFY_SERVER_TIME_URL = "https://open.spotify.com/api/server-time"
+_SPOTIFY_LYRICS_URL = "https://spclient.wg.spotify.com/color-lyrics/v2/track/"
 _SPOTIFY_SECRET_URL = (
     "https://raw.githubusercontent.com/xyloflake/spot-secrets-go"
     "/refs/heads/main/secrets/secrets.json"
@@ -208,3 +209,35 @@ class SpotifyAuthenticator(BaseAuthenticator):
             except Exception as e:
                 logger.error(f"Spotify: token request failed: {e}")
                 return None
+
+    async def get_lyrics(self, track_id: str) -> dict | None:
+        """Fetch raw lyrics JSON payload for a Spotify track."""
+        token = await self.authenticate()
+        if not token:
+            return None
+
+        url = (
+            f"{_SPOTIFY_LYRICS_URL}{track_id}"
+            "?format=json&vocalRemoval=false&market=from_token"
+        )
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}",
+            **SPOTIFY_BASE_HEADERS,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=self._general.http_timeout) as client:
+                res = await client.get(url, headers=headers)
+                if res.status_code == 404:
+                    return None
+                if res.status_code != 200:
+                    logger.error(f"Spotify: lyrics API returned {res.status_code}")
+                    return None
+                data = res.json()
+            if not isinstance(data, dict):
+                return None
+            return data
+        except Exception as e:
+            logger.error(f"Spotify: lyrics fetch failed: {e}")
+            return None

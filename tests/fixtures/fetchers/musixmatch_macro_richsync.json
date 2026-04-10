@@ -1,0 +1,28 @@
+{
+    "message": {
+        "body": {
+            "macro_calls": {
+                "track.richsync.get": {
+                    "message": {
+                        "header": {
+                            "status_code": 200
+                        },
+                        "body": {
+                            "richsync": {
+                                "richsync_body": "[{\"ts\": 1.2, \"x\": \"hello\"}, {\"ts\": 2.34, \"x\": \"world\"}]"
+                            }
+                        }
+                    }
+                },
+                "track.subtitles.get": {
+                    "message": {
+                        "header": {
+                            "status_code": 404
+                        },
+                        "body": {}
+                    }
+                }
+            }
+        }
+    }
+}

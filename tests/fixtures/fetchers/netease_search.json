@@ -1,0 +1,32 @@
+{
+    "result": {
+        "songs": [
+            {
+                "id": 2080607,
+                "name": "My Love",
+                "dt": 231941,
+                "ar": [
+                    {
+                        "name": "Westlife"
+                    }
+                ],
+                "al": {
+                    "name": "Unbreakable"
+                }
+            },
+            {
+                "id": 572412968,
+                "name": "My Love",
+                "dt": 231000,
+                "ar": [
+                    {
+                        "name": "Westlife"
+                    }
+                ],
+                "al": {
+                    "name": "Pure... Love"
+                }
+            }
+        ]
+    }
+}

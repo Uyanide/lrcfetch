@@ -133,7 +133,8 @@ socket_path             = ""        # Unix socket path; defaults to <cache_dir>/
   for the Spotify source; leave empty to disable it.
 - `musixmatch_usertoken` — found at
   [Curators Settings Page](https://curators.musixmatch.com/settings) → Login → "Copy debug info".
-  If empty, an anonymous token is fetched at runtime.
+  If empty, an anonymous token will be fetched at runtime, which could be more likely to
+  hit the rate limits.
 - `qq_music_api_url` — base URL of a self-hosted
   [qq-music-api](https://github.com/tooplick/qq-music-api) (compatible) instance. Required
   for the QQ Music source; leave empty to disable it.
@@ -154,13 +155,13 @@ uv venv .venv
 uv sync
 ```
 
-Run tests without network calls
+Run tests without network calls:
 
 ```bash
 uv run pytest -m "not network"
 ```
 
-or full tests:
+or run full tests. The **REAL** API calls will be made and some of them will be skipped if the required credentials are not configured as [above](#configuration). This might be useful to verify that the lyric sources are still valid and working as expected:
 
 ```bash
 uv run pytest

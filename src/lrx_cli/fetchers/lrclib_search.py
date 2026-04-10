@@ -23,6 +23,24 @@ from ..config import (
 _LRCLIB_SEARCH_URL = "https://lrclib.net/api/search"
 
 
+def _parse_lrclib_search_results(items: list[dict]) -> list[SearchCandidate[dict]]:
+    """Map LRCLIB search JSON items to normalized SearchCandidate entries."""
+    return [
+        SearchCandidate(
+            item=item,
+            duration_ms=item["duration"] * 1000
+            if isinstance(item.get("duration"), (int, float))
+            else None,
+            is_synced=isinstance(item.get("syncedLyrics"), str)
+            and bool(item["syncedLyrics"].strip()),
+            title=item.get("trackName"),
+            artist=item.get("artistName"),
+            album=item.get("albumName"),
+        )
+        for item in items
+    ]
+
+
 class LrclibSearchFetcher(BaseFetcher):
     @property
     def source_name(self) -> str:
@@ -59,49 +77,63 @@ class LrclibSearchFetcher(BaseFetcher):
 
         return queries
 
+    async def _api_query(
+        self,
+        client: httpx.AsyncClient,
+        params: dict[str, str],
+    ) -> tuple[list[dict], bool]:
+        """Issue one LRCLIB search query using production request path."""
+        url = f"{_LRCLIB_SEARCH_URL}?{urlencode(params)}"
+        logger.debug(f"LRCLIB-search: query {params}")
+        try:
+            resp = await client.get(url, headers={"User-Agent": UA_LRX})
+        except httpx.HTTPError as e:
+            logger.error(f"LRCLIB-search: HTTP error: {e}")
+            return [], True
+        if resp.status_code != 200:
+            logger.error(f"LRCLIB-search: API returned {resp.status_code}")
+            return [], True
+        data = resp.json()
+        if not isinstance(data, list):
+            return [], False
+        return [item for item in data if isinstance(item, dict)], False
+
+    async def _api_candidates(
+        self,
+        client: httpx.AsyncClient,
+        track: TrackMeta,
+    ) -> tuple[list[dict], bool]:
+        """Request and merge LRCLIB-search candidates using built-in query strategy."""
+        queries = self._build_queries(track)
+        all_results = await asyncio.gather(
+            *(self._api_query(client, p) for p in queries)
+        )
+
+        seen_ids: set[int] = set()
+        candidates: list[dict] = []
+        had_error = False
+        for items, err in all_results:
+            if err:
+                had_error = True
+            for item in items:
+                item_id = item.get("id")
+                if item_id is not None and item_id in seen_ids:
+                    continue
+                if item_id is not None:
+                    seen_ids.add(item_id)
+                candidates.append(item)
+        return candidates, had_error
+
     async def fetch(self, track: TrackMeta, bypass_cache: bool = False) -> FetchResult:
         if not track.title:
             logger.debug("LRCLIB-search: skipped — no title")
             return FetchResult()
 
-        queries = self._build_queries(track)
         logger.info(f"LRCLIB-search: searching for {track.display_name()}")
-
-        seen_ids: set[int] = set()
-        candidates: list[dict] = []
-        had_error = False
 
         try:
             async with httpx.AsyncClient(timeout=self._general.http_timeout) as client:
-
-                async def _query(params: dict[str, str]) -> tuple[list[dict], bool]:
-                    url = f"{_LRCLIB_SEARCH_URL}?{urlencode(params)}"
-                    logger.debug(f"LRCLIB-search: query {params}")
-                    try:
-                        resp = await client.get(url, headers={"User-Agent": UA_LRX})
-                    except httpx.HTTPError as e:
-                        logger.error(f"LRCLIB-search: HTTP error: {e}")
-                        return [], True
-                    if resp.status_code != 200:
-                        logger.error(f"LRCLIB-search: API returned {resp.status_code}")
-                        return [], True
-                    data = resp.json()
-                    if not isinstance(data, list):
-                        return [], False
-                    return [item for item in data if isinstance(item, dict)], False
-
-                all_results = await asyncio.gather(*(_query(p) for p in queries))
-
-            for items, err in all_results:
-                if err:
-                    had_error = True
-                for item in items:
-                    item_id = item.get("id")
-                    if item_id is not None and item_id in seen_ids:
-                        continue
-                    if item_id is not None:
-                        seen_ids.add(item_id)
-                    candidates.append(item)
+                candidates, had_error = await self._api_candidates(client, track)
 
             if not candidates:
                 if had_error:
@@ -111,23 +143,10 @@ class LrclibSearchFetcher(BaseFetcher):
 
             logger.debug(
                 f"LRCLIB-search: got {len(candidates)} unique candidates "
-                f"from {len(queries)} queries"
+                f"from {len(self._build_queries(track))} queries"
             )
 
-            mapped = [
-                SearchCandidate(
-                    item=item,
-                    duration_ms=item["duration"] * 1000
-                    if isinstance(item.get("duration"), (int, float))
-                    else None,
-                    is_synced=isinstance(item.get("syncedLyrics"), str)
-                    and bool(item["syncedLyrics"].strip()),
-                    title=item.get("trackName"),
-                    artist=item.get("artistName"),
-                    album=item.get("albumName"),
-                )
-                for item in candidates
-            ]
+            mapped = _parse_lrclib_search_results(candidates)
             best, confidence = select_best(
                 mapped,
                 track.length,

@@ -30,6 +30,42 @@ _NETEASE_BASE_HEADERS = {
 }
 
 
+def _parse_netease_search(data: dict) -> list[SearchCandidate[int]]:
+    """Parse Netease search response into scored candidates."""
+    result_body = data.get("result")
+    if not isinstance(result_body, dict):
+        return []
+
+    songs = result_body.get("songs")
+    if not isinstance(songs, list) or len(songs) == 0:
+        return []
+
+    return [
+        SearchCandidate(
+            item=song_id,
+            duration_ms=float(song["dt"]) if isinstance(song.get("dt"), int) else None,
+            title=song.get("name"),
+            artist=", ".join(a.get("name", "") for a in song.get("ar", [])) or None,
+            album=(song.get("al") or {}).get("name"),
+        )
+        for song in songs
+        if isinstance(song, dict) and isinstance(song_id := song.get("id"), int)
+    ]
+
+
+def _parse_netease_lyrics(data: dict) -> LRCData | None:
+    """Parse Netease lyric response to LRCData."""
+    lrc_obj = data.get("lrc")
+    if not isinstance(lrc_obj, dict):
+        return None
+
+    lrc = lrc_obj.get("lyric", "")
+    if not isinstance(lrc, str) or not lrc.strip():
+        return None
+
+    return LRCData(lrc)
+
+
 class NeteaseFetcher(BaseFetcher):
     @property
     def source_name(self) -> str:
@@ -37,6 +73,88 @@ class NeteaseFetcher(BaseFetcher):
 
     def is_available(self, track: TrackMeta) -> bool:
         return bool(track.title)
+
+    async def _api_search(
+        self,
+        client: httpx.AsyncClient,
+        query: str,
+        limit: int,
+    ) -> dict | None:
+        """Issue one Netease search request and return JSON payload."""
+        resp = await client.post(
+            _NETEASE_SEARCH_URL,
+            headers=_NETEASE_BASE_HEADERS,
+            data={"s": query, "type": "1", "limit": str(limit), "offset": "0"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if not isinstance(data, dict):
+            return None
+        return data
+
+    async def _api_search_track(
+        self,
+        client: httpx.AsyncClient,
+        track: TrackMeta,
+        limit: int,
+    ) -> dict | None:
+        """Request Netease search payload for one track using production query strategy."""
+        query = f"{track.artist or ''} {track.title or ''}".strip()
+        if not query:
+            return None
+        return await self._api_search(client, query, limit)
+
+    async def _api_lyric(
+        self,
+        client: httpx.AsyncClient,
+        song_id: int,
+    ) -> dict | None:
+        """Issue one Netease lyric request and return JSON payload."""
+        resp = await client.post(
+            _NETEASE_LYRIC_URL,
+            headers=_NETEASE_BASE_HEADERS,
+            data={
+                "id": str(song_id),
+                "cp": "false",
+                "tv": "0",
+                "lv": "0",
+                "rv": "0",
+                "kv": "0",
+                "yv": "0",
+                "ytv": "0",
+                "yrv": "0",
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if not isinstance(data, dict):
+            return None
+        return data
+
+    async def _api_lyric_track(
+        self,
+        client: httpx.AsyncClient,
+        track: TrackMeta,
+        limit: int,
+    ) -> dict | None:
+        """Request lyric payload for top-ranked candidate of a track."""
+        search_data = await self._api_search_track(client, track, limit)
+        if search_data is None:
+            return None
+        candidates = _parse_netease_search(search_data)
+        if not candidates:
+            return None
+        ranked = select_ranked(
+            candidates,
+            track.length,
+            title=track.title,
+            artist=track.artist,
+            album=track.album,
+        )
+        if not ranked:
+            return None
+        top_song_id = ranked[0][0]
+        return await self._api_lyric(client, top_song_id)
 
     async def _search(
         self, track: TrackMeta, limit: int = 10
@@ -49,46 +167,18 @@ class NeteaseFetcher(BaseFetcher):
 
         try:
             async with httpx.AsyncClient(timeout=self._general.http_timeout) as client:
-                resp = await client.post(
-                    _NETEASE_SEARCH_URL,
-                    headers=_NETEASE_BASE_HEADERS,
-                    data={"s": query, "type": "1", "limit": str(limit), "offset": "0"},
-                )
-                resp.raise_for_status()
-                result = resp.json()
+                result = await self._api_search_track(client, track, limit)
 
-            if not isinstance(result, dict):
-                logger.error(
-                    f"Netease: search returned non-dict: {type(result).__name__}"
-                )
+            if result is None:
+                logger.error("Netease: search returned non-dict payload")
                 return []
 
-            result_body = result.get("result")
-            if not isinstance(result_body, dict):
-                logger.debug("Netease: search 'result' field missing or invalid")
-                return []
-
-            songs = result_body.get("songs")
-            if not isinstance(songs, list) or len(songs) == 0:
+            candidates = _parse_netease_search(result)
+            if not candidates:
                 logger.debug("Netease: search returned 0 results")
                 return []
 
-            logger.debug(f"Netease: search returned {len(songs)} candidates")
-
-            candidates = [
-                SearchCandidate(
-                    item=song_id,
-                    duration_ms=float(song["dt"])
-                    if isinstance(song.get("dt"), int)
-                    else None,
-                    title=song.get("name"),
-                    artist=", ".join(a.get("name", "") for a in song.get("ar", []))
-                    or None,
-                    album=(song.get("al") or {}).get("name"),
-                )
-                for song in songs
-                if isinstance(song, dict) and isinstance(song_id := song.get("id"), int)
-            ]
+            logger.debug(f"Netease: search returned {len(candidates)} candidates")
             ranked = select_ranked(
                 candidates,
                 track.length,
@@ -114,43 +204,16 @@ class NeteaseFetcher(BaseFetcher):
 
         try:
             async with httpx.AsyncClient(timeout=self._general.http_timeout) as client:
-                resp = await client.post(
-                    _NETEASE_LYRIC_URL,
-                    headers=_NETEASE_BASE_HEADERS,
-                    data={
-                        "id": str(song_id),
-                        "cp": "false",
-                        "tv": "0",
-                        "lv": "0",
-                        "rv": "0",
-                        "kv": "0",
-                        "yv": "0",
-                        "ytv": "0",
-                        "yrv": "0",
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
+                data = await self._api_lyric(client, song_id)
 
-            if not isinstance(data, dict):
-                logger.error(
-                    f"Netease: lyric response is not dict: {type(data).__name__}"
-                )
+            if data is None:
+                logger.error("Netease: lyric response is not dict")
                 return FetchResult.from_network_error()
 
-            lrc_obj = data.get("lrc")
-            if not isinstance(lrc_obj, dict):
-                logger.debug(
-                    f"Netease: no 'lrc' object in response for song_id={song_id}"
-                )
-                return FetchResult.from_not_found()
-
-            lrc: str = lrc_obj.get("lyric", "")
-            if not isinstance(lrc, str) or not lrc.strip():
+            lrcdata = _parse_netease_lyrics(data)
+            if lrcdata is None:
                 logger.debug(f"Netease: empty lyrics for song_id={song_id}")
                 return FetchResult.from_not_found()
-
-            lrcdata = LRCData(lrc)
             status = lrcdata.detect_sync_status()
             logger.info(
                 f"Netease: got {status.value} lyrics for song_id={song_id} "

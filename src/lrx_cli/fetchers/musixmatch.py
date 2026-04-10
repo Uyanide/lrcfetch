@@ -83,21 +83,8 @@ def _parse_subtitle(body: str) -> Optional[str]:
         return None
 
 
-async def _fetch_macro(
-    auth: MusixmatchAuthenticator,
-    params: dict,
-) -> Optional[LRCData]:
-    """Call macro.subtitles.get via auth.get_json.
-
-    Returns LRCData (richsync preferred over subtitle), or None when no usable
-    lyrics are found. Raises on HTTP/network errors.
-    """
-    logger.debug(f"Musixmatch: macro call with {list(params.keys())}")
-    data = await auth.get_json(_MUSIXMATCH_MACRO_URL, {**_MXM_MACRO_PARAMS, **params})
-    if data is None:
-        return None
-
-    # Musixmatch returns body=[] (not {}) when the track is not found
+def _parse_mxm_macro(data: dict) -> LRCData | None:
+    """Parse macro.subtitles.get payload into LRCData (richsync preferred)."""
     body = data.get("message", {}).get("body", {})
     if not isinstance(body, dict):
         return None
@@ -105,7 +92,6 @@ async def _fetch_macro(
     if not isinstance(macro_calls, dict):
         return None
 
-    # Prefer richsync (word-level timing)
     richsync_msg = macro_calls.get("track.richsync.get", {}).get("message", {})
     if (
         isinstance(richsync_msg, dict)
@@ -119,10 +105,8 @@ async def _fetch_macro(
             if lrc_text:
                 lrc = LRCData(lrc_text)
                 if lrc:
-                    logger.debug("Musixmatch: got richsync lyrics")
                     return lrc
 
-    # Fall back to subtitle (line-level timing)
     subtitle_msg = macro_calls.get("track.subtitles.get", {}).get("message", {})
     if (
         isinstance(subtitle_msg, dict)
@@ -136,11 +120,34 @@ async def _fetch_macro(
                 if lrc_text:
                     lrc = LRCData(lrc_text)
                     if lrc:
-                        logger.debug("Musixmatch: got subtitle lyrics")
                         return lrc
 
-    logger.debug("Musixmatch: no usable lyrics in macro response")
     return None
+
+
+def _parse_mxm_search(data: dict) -> list[SearchCandidate[int]]:
+    """Parse track.search payload to normalized candidates."""
+    track_list = data.get("message", {}).get("body", {}).get("track_list", [])
+    if not isinstance(track_list, list) or not track_list:
+        return []
+
+    return [
+        SearchCandidate(
+            item=int(t["commontrack_id"]),
+            duration_ms=(
+                float(t["track_length"]) * 1000 if t.get("track_length") else None
+            ),
+            is_synced=bool(t.get("has_subtitles") or t.get("has_richsync")),
+            title=t.get("track_name"),
+            artist=t.get("artist_name"),
+            album=t.get("album_name"),
+        )
+        for item in track_list
+        if isinstance(item, dict)
+        and isinstance(t := item.get("track", {}), dict)
+        and isinstance(t.get("commontrack_id"), int)
+        and not t.get("instrumental")
+    ]
 
 
 class MusixmatchSpotifyFetcher(BaseFetcher):
@@ -158,14 +165,36 @@ class MusixmatchSpotifyFetcher(BaseFetcher):
     def is_available(self, track: TrackMeta) -> bool:
         return bool(track.trackid) and not self._auth.is_cooldown()
 
+    async def _api_macro(self, params: dict) -> dict | None:
+        """Request macro payload through authenticator using production path."""
+        return await self._auth.get_json(
+            _MUSIXMATCH_MACRO_URL, {**_MXM_MACRO_PARAMS, **params}
+        )
+
+    async def _api_macro_track(self, track: TrackMeta) -> dict | None:
+        """Request macro payload for one track using Spotify ID lookup path."""
+        if not track.trackid:
+            return None
+        return await self._api_macro({"track_spotify_id": track.trackid})
+
+    async def _fetch_macro(self, params: dict) -> LRCData | None:
+        """Request and parse Musixmatch macro lyrics payload."""
+        logger.debug(f"Musixmatch: macro call with {list(params.keys())}")
+        data = await self._api_macro(params)
+        if data is None:
+            return None
+        lrc = _parse_mxm_macro(data)
+        if lrc is None:
+            logger.debug("Musixmatch: no usable lyrics in macro response")
+            return None
+        logger.debug("Musixmatch: parsed macro lyrics")
+        return lrc
+
     async def fetch(self, track: TrackMeta, bypass_cache: bool = False) -> FetchResult:
         logger.info(f"Musixmatch-Spotify: fetching lyrics for {track.display_name()}")
 
         try:
-            lrc = await _fetch_macro(
-                self._auth,
-                {"track_spotify_id": track.trackid},  # type: ignore[dict-item]
-            )
+            lrc = await self._fetch_macro({"track_spotify_id": track.trackid})  # type: ignore[dict-item]
         except AttributeError:
             return FetchResult.from_not_found()
         except Exception as e:
@@ -210,9 +239,13 @@ class MusixmatchFetcher(BaseFetcher):
     def is_available(self, track: TrackMeta) -> bool:
         return bool(track.title) and not self._auth.is_cooldown()
 
-    async def _search(self, track: TrackMeta) -> tuple[Optional[int], float]:
-        """Search for track metadata. Raises on network/HTTP errors."""
-        params: dict = {
+    async def _api_search(self, params: dict) -> dict | None:
+        """Request search payload through authenticator using production path."""
+        return await self._auth.get_json(_MUSIXMATCH_SEARCH_URL, params)
+
+    def _build_search_params(self, track: TrackMeta) -> dict[str, str]:
+        """Build Musixmatch search params for one track."""
+        params: dict[str, str] = {
             "q_track": track.title or "",
             "page_size": "10",
             "f_has_lyrics": "1",
@@ -221,36 +254,66 @@ class MusixmatchFetcher(BaseFetcher):
             params["q_artist"] = track.artist
         if track.album:
             params["q_album"] = track.album
+        return params
 
+    async def _api_search_track(self, track: TrackMeta) -> dict | None:
+        """Request search payload for one track using production path."""
+        return await self._api_search(self._build_search_params(track))
+
+    async def _api_macro(self, params: dict) -> dict | None:
+        """Request macro payload through authenticator using production path."""
+        return await self._auth.get_json(
+            _MUSIXMATCH_MACRO_URL, {**_MXM_MACRO_PARAMS, **params}
+        )
+
+    async def _api_macro_track(self, track: TrackMeta) -> dict | None:
+        """Request macro payload for top-ranked search candidate of one track."""
+        search_data = await self._api_search_track(track)
+        if search_data is None:
+            return None
+
+        candidates = _parse_mxm_search(search_data)
+        if not candidates:
+            return None
+
+        commontrack_id, _confidence = select_best(
+            candidates,
+            track.length,
+            title=track.title,
+            artist=track.artist,
+            album=track.album,
+        )
+        if commontrack_id is None:
+            return None
+
+        return await self._api_macro({"commontrack_id": str(commontrack_id)})
+
+    async def _fetch_macro(self, params: dict) -> LRCData | None:
+        """Request and parse Musixmatch macro lyrics payload."""
+        logger.debug(f"Musixmatch: macro call with {list(params.keys())}")
+        data = await self._api_macro(params)
+        if data is None:
+            return None
+        lrc = _parse_mxm_macro(data)
+        if lrc is None:
+            logger.debug("Musixmatch: no usable lyrics in macro response")
+            return None
+        logger.debug("Musixmatch: parsed macro lyrics")
+        return lrc
+
+    async def _search(self, track: TrackMeta) -> tuple[Optional[int], float]:
+        """Search for track metadata. Raises on network/HTTP errors."""
         logger.debug(f"Musixmatch: searching for '{track.display_name()}'")
-        data = await self._auth.get_json(_MUSIXMATCH_SEARCH_URL, params)
+        data = await self._api_search_track(track)
         if data is None:
             return None, 0.0
 
-        track_list = data.get("message", {}).get("body", {}).get("track_list", [])
-        if not isinstance(track_list, list) or not track_list:
+        candidates = _parse_mxm_search(data)
+        if not candidates:
             logger.debug("Musixmatch: search returned 0 results")
             return None, 0.0
 
-        logger.debug(f"Musixmatch: search returned {len(track_list)} candidates")
-
-        candidates = [
-            SearchCandidate(
-                item=int(t["commontrack_id"]),
-                duration_ms=(
-                    float(t["track_length"]) * 1000 if t.get("track_length") else None
-                ),
-                is_synced=bool(t.get("has_subtitles") or t.get("has_richsync")),
-                title=t.get("track_name"),
-                artist=t.get("artist_name"),
-                album=t.get("album_name"),
-            )
-            for item in track_list
-            if isinstance(item, dict)
-            and isinstance(t := item.get("track", {}), dict)
-            and isinstance(t.get("commontrack_id"), int)
-            and not t.get("instrumental")
-        ]
+        logger.debug(f"Musixmatch: search returned {len(candidates)} candidates")
 
         best_id, confidence = select_best(
             candidates,
@@ -274,10 +337,7 @@ class MusixmatchFetcher(BaseFetcher):
                 logger.debug(f"Musixmatch: no match found for {track.display_name()}")
                 return FetchResult.from_not_found()
 
-            lrc = await _fetch_macro(
-                self._auth,
-                {"commontrack_id": str(commontrack_id)},
-            )
+            lrc = await self._fetch_macro({"commontrack_id": str(commontrack_id)})
         except AttributeError:
             return FetchResult.from_not_found()
         except Exception as e:
