@@ -1,4 +1,8 @@
-"""Debounced lyric fetch orchestration for watch session."""
+"""
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-04-10 08:14:41
+Description: Debounced lyric fetch orchestration for watch session.
+"""
 
 import asyncio
 from typing import Awaitable, Callable, Optional
@@ -50,6 +54,7 @@ class LyricFetcher:
         """Request lyrics for track with debounce collapsing."""
         self._pending_track = track
         if self._debounce_task is not None:
+            # cancel any pending debounce window — the new request supersedes it
             self._debounce_task.cancel()
         self._debounce_task = asyncio.create_task(self._debounce_then_fetch())
 
@@ -61,6 +66,7 @@ class LyricFetcher:
             return
 
         if self._fetch_task is not None:
+            # abort any in-flight fetch for a previous track before starting the new one
             self._fetch_task.cancel()
             await asyncio.gather(self._fetch_task, return_exceptions=True)
 
@@ -68,6 +74,7 @@ class LyricFetcher:
 
     async def _do_fetch(self, track: TrackMeta) -> None:
         """Execute fetch lifecycle callbacks and fetch lyrics for a track."""
+        # callbacks may be plain functions or coroutines — handle both
         fetching_callback_result = self._on_fetching()
         if asyncio.iscoroutine(fetching_callback_result):
             await fetching_callback_result

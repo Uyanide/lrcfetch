@@ -1,8 +1,11 @@
-"""Watch orchestration with explicit MVVM role boundaries.
+"""
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-04-10 08:10:52
+Description: Watch orchestration with explicit MVVM role boundaries.
 
-- Model: WatchModel stores domain state.
-- ViewModel: WatchViewModel projects model to output-facing state/signature.
-- Coordinator: WatchCoordinator wires services and drives async workflows.
+             - Model: WatchModel stores domain state.
+             - ViewModel: WatchViewModel projects model to output-facing state/signature.
+             - Coordinator: WatchCoordinator wires services and drives async workflows.
 """
 
 import asyncio
@@ -48,6 +51,8 @@ class WatchModel:
 
     def state_signature(self, track: TrackMeta | None, position_ms: int) -> tuple:
         """Build dedupe signature from model state and current lyric cursor."""
+        # prefer trackid when available; fall back to display name for players
+        # that don't expose a stable ID (e.g. some MPRIS implementations)
         track_key = (
             track.trackid
             if track and track.trackid
@@ -57,6 +62,7 @@ class WatchModel:
         )
 
         if self.status != WatchStatus.OK or self.lyrics is None:
+            # non-OK states don't have cursor position — discriminate by status alone
             return ("status", self.status, self.active_player, track_key)
         at_ms = position_ms + self.offset_ms
         cursor = self.lyrics.signature_cursor(at_ms)
@@ -164,7 +170,9 @@ class WatchCoordinator:
             await self._player_monitor.start()
             await self._tracker.start()
             self._calibration_task = asyncio.create_task(self._calibration_loop())
+            # emit once at startup so outputs don't sit blank until the first event
             self._schedule_emit()
+            # block forever; CancelledError from signal handler exits the loop cleanly
             await asyncio.Event().wait()
             return True
         except asyncio.CancelledError:
@@ -206,8 +214,10 @@ class WatchCoordinator:
         if track is None:
             return False
         if self._model.lyrics is not None:
+            # lyrics already loaded — nothing to fetch
             return False
         if self._model.status == WatchStatus.FETCHING:
+            # a fetch is already in flight — don't queue another
             return False
         logger.info("fetching lyrics for track ({}): {}", reason, track.display_name())
         self._fetcher.request(track)
@@ -272,6 +282,7 @@ class WatchCoordinator:
         track_changed = track_key != prev_track_key
         player_changed = selected != prev_player
         if track_changed or player_changed:
+            # clear stale lyrics immediately so the old track's lines don't flash
             self._model.set_lyrics(None)
 
         self._model.active_track_key = track_key
@@ -284,15 +295,19 @@ class WatchCoordinator:
             )
         )
 
+        # only fetch on identity change — calibration ticks must not re-trigger fetches
         started_fetch = False
         if track is not None and (player_changed or track_changed):
             started_fetch = self._request_fetch_for_active_track("track-changed")
 
+        # derive status from what actually happened this tick; preserve FETCHING
+        # if an in-flight request was started before this snapshot arrived
         if self._model.lyrics is not None:
             self._model.status = WatchStatus.OK
         elif started_fetch:
             self._model.status = WatchStatus.FETCHING
         elif self._model.status != WatchStatus.FETCHING:
+            # don't overwrite FETCHING with NO_LYRICS while a request is in flight
             self._model.status = WatchStatus.NO_LYRICS
         self._schedule_emit()
 
@@ -306,12 +321,13 @@ class WatchCoordinator:
 
     def _on_tracker_tick(self) -> None:
         """Emit updates from tracker tick only while lyrics are actively rendering."""
-        if self._model.status == WatchStatus.OK:
+        if self._model.status == WatchStatus.OK and self._output.position_sensitive:
             self._schedule_emit()
 
     def _schedule_emit(self) -> None:
         """Coalesce frequent events into at most one in-flight emit task."""
         if self._emit_scheduled:
+            # a task is already queued; it will pick up the latest model state when it runs
             return
         self._emit_scheduled = True
         asyncio.create_task(self._run_scheduled_emit())
@@ -321,6 +337,7 @@ class WatchCoordinator:
         try:
             await self._emit_state()
         finally:
+            # release the gate even on error so future events can still schedule
             self._emit_scheduled = False
 
     async def _on_fetching(self) -> None:
@@ -344,10 +361,17 @@ class WatchCoordinator:
         """Emit output state only when semantic signature changes."""
         player = self._player_monitor.players.get(self._model.active_player or "")
         track = player.track if player else None
-        position = await self._tracker.get_position_ms()
+        # position=0 for non-position-sensitive outputs so the signature is stable
+        # across ticks and on_state fires at most once per track+status transition
+        position = (
+            await self._tracker.get_position_ms()
+            if self._output.position_sensitive
+            else 0
+        )
 
         signature = self._view_model.signature(track, position)
         if signature == self._last_emit_signature:
+            # state hasn't changed semantically — skip redundant render
             return
         self._last_emit_signature = signature
         state = self._view_model.state(track, position)

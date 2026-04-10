@@ -1,4 +1,8 @@
-"""Playback position tracking utilities for watch mode."""
+"""
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-04-10 08:13:35
+Description: Playback position tracking utilities for watch mode.
+"""
 
 import asyncio
 import time
@@ -69,7 +73,10 @@ class PositionTracker:
             self._is_playing = playback_status == "Playing"
             status_changed_to_playing = self._is_playing and not was_playing
             if player_changed or track_changed:
+                # reset to 0 so stale position from a previous track doesn't bleed through
                 self._position_ms = 0
+            # only poll MPRIS when something changed and the player is actually running;
+            # avoids an unnecessary D-Bus round-trip on every calibration-loop tick
             should_calibrate_now = (
                 self._is_playing
                 and bool(self._active_player)
@@ -97,6 +104,7 @@ class PositionTracker:
                 return
             was_playing = self._is_playing
             self._is_playing = playback_status == "Playing"
+            # re-anchor last_tick when resuming so the gap while paused isn't counted
             should_calibrate_now = self._is_playing and not was_playing
             self._last_tick = time.monotonic()
 
@@ -112,10 +120,13 @@ class PositionTracker:
             async with self._lock:
                 now = time.monotonic()
                 if self._is_playing and self._active_player:
+                    # accumulate elapsed wall-clock time as playback position;
+                    # seek events and calibration snapshots correct drift periodically
                     delta_ms = int((now - self._last_tick) * 1000)
                     if delta_ms > 0:
                         self._position_ms += delta_ms
                         should_notify = True
+                # always update last_tick so paused time isn't counted on resume
                 self._last_tick = now
 
             if should_notify and self._on_tick is not None:

@@ -1,4 +1,8 @@
-"""Player discovery, state monitoring, and active-player selection for watch mode."""
+"""
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-04-10 08:14:27
+Description: Player discovery, state monitoring, and active-player selection for watch mode.
+"""
 
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -219,6 +223,7 @@ class PlayerMonitor:
         trackid = metadata.get("mpris:trackid")
         if trackid is not None:
             trackid = _variant_value(trackid)
+            # normalize Spotify track IDs — the raw MPRIS value varies by client version
             if isinstance(trackid, str) and trackid.startswith("spotify:track:"):
                 trackid = trackid.removeprefix("spotify:track:")
             elif isinstance(trackid, str) and trackid.startswith("/com/spotify/track/"):
@@ -230,12 +235,14 @@ class PlayerMonitor:
         length_ms = None
         length_value = _variant_value(length) if length is not None else None
         if isinstance(length_value, int):
+            # MPRIS reports length in microseconds; convert to milliseconds
             length_ms = length_value // 1000
 
         artist = metadata.get("xesam:artist")
         artist_v = None
         artist_value = _variant_value(artist) if artist is not None else None
         if isinstance(artist_value, list) and artist_value:
+            # xesam:artist is a list; take the first entry as primary artist
             artist_v = artist_value[0]
 
         title = metadata.get("xesam:title")
@@ -286,10 +293,14 @@ class PlayerMonitor:
     async def _resolve_well_known_name(self, unique_sender: str) -> str | None:
         """Map a DBus unique sender (e.g. :1.42) to a tracked MPRIS bus name."""
         if unique_sender in self.players:
+            # sender is already a well-known name we track (unlikely but fast path)
             return unique_sender
         if not self._bus:
             return None
 
+        # Seeked signals arrive with the unique connection name (:1.N), not the
+        # well-known bus name (org.mpris.MediaPlayer2.X). Ask D-Bus which
+        # well-known name owns that unique name.
         for bus_name in self.players:
             try:
                 reply = await self._bus.call(
@@ -325,6 +336,7 @@ class PlayerMonitor:
                 message.interface == "org.freedesktop.DBus"
                 and message.member == "NameOwnerChanged"
             ):
+                # a player appeared or disappeared — rescan the full player list
                 if message.body and str(message.body[0]).startswith(
                     "org.mpris.MediaPlayer2."
                 ):
@@ -335,7 +347,9 @@ class PlayerMonitor:
                 message.interface == "org.freedesktop.DBus.Properties"
                 and message.member == "PropertiesChanged"
             ):
-                # Message.sender is a DBus unique name, so match by path+iface.
+                # message.sender is a unique connection name, not the well-known bus
+                # name, so we can't filter by sender here — match by object path and
+                # interface instead to scope it to MPRIS Player properties only
                 path_ok = message.path == "/org/mpris/MediaPlayer2"
                 iface = message.body[0] if message.body else None
                 if path_ok and iface == "org.mpris.MediaPlayer2.Player":
@@ -348,6 +362,7 @@ class PlayerMonitor:
             ):
                 sender = message.sender or ""
                 if sender and message.body:
+                    # MPRIS Seeked position is in microseconds; convert to ms
                     position_us = int(message.body[0])
                     asyncio.create_task(
                         self._handle_seeked_signal(
@@ -391,15 +406,19 @@ class ActivePlayerSelector:
 
         playing = [name for name, st in players.items() if st.status == "Playing"]
         if len(playing) == 1:
+            # unambiguous — only one player is currently playing
             return playing[0]
 
         preferred = preferred_player.lower().strip()
+        # when multiple players are playing, narrow candidates to those; otherwise
+        # fall back to all known players so a paused preferred player still wins
         candidates = playing if playing else list(players.keys())
         if preferred:
             for name in candidates:
                 if preferred in name.lower():
                     return name
 
+        # preserve the last selection to avoid jitter when nothing else changes
         if last_active and last_active in players:
             return last_active
 

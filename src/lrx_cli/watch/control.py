@@ -1,4 +1,8 @@
-"""Unix-socket control channel for communicating with a running watch session."""
+"""
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-04-10 08:14:58
+Description: Unix-socket control channel for communicating with a running watch session.
+"""
 
 import asyncio
 import json
@@ -40,14 +44,17 @@ class ControlServer:
             return True
 
         try:
+            # probe the socket to distinguish a live session from a stale socket file
             reader, writer = await asyncio.open_unix_connection(str(self._socket_path))
             writer.close()
             await writer.wait_closed()
+            # connection succeeded → another watch session is actively listening
             logger.error(
                 "A watch session is already running. Use 'lrx watch ctl status'."
             )
             return False
         except Exception:
+            # connection refused / file is stale → safe to remove and reuse
             try:
                 self._socket_path.unlink(missing_ok=True)
             except Exception:
@@ -136,6 +143,8 @@ def parse_delta(raw: str) -> tuple[bool, int | None, str | None]:
         if value.startswith("+"):
             return True, int(value[1:]), None
         if value.startswith("-"):
+            # keep the sign by negating; bare int() would accept "-123" too but
+            # explicit split is clearer about intent and avoids double-negative edge cases
             return True, -int(value[1:]), None
         return True, int(value), None
     except ValueError:

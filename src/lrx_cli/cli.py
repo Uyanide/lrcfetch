@@ -29,6 +29,7 @@ from .lrc import get_sidecar_path
 from .watch import WatchCoordinator
 from .watch.control import ControlClient, parse_delta
 from .watch.view.pipe import PipeOutput
+from .watch.view.print import PrintOutput
 
 
 app = cyclopts.App(
@@ -418,6 +419,37 @@ def pipe(
     output = PipeOutput(
         before=max(0, before), after=max(0, after), no_newline=no_newline
     )
+    try:
+        session = WatchCoordinator(
+            manager,
+            output,
+            player_hint=_player,
+            config=_app_config,
+        )
+        success = asyncio.run(session.run())
+        if not success:
+            sys.exit(1)
+    except KeyboardInterrupt:
+        logger.info("Watch stopped.")
+
+
+@watch_app.command(name="print")
+def watch_print(
+    plain: Annotated[
+        bool,
+        cyclopts.Parameter(
+            name="--plain",
+            negative="",
+            help="Output plain text (strips all tags). Takes priority over --normalize.",
+        ),
+    ] = False,
+) -> None:
+    """Watch active player and print all lyrics to stdout once per track change."""
+    logger.info(
+        "Starting watch print (player filter: {})",
+        _player or "<none>",
+    )
+    output = PrintOutput(plain=plain)
     try:
         session = WatchCoordinator(
             manager,

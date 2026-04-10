@@ -1,4 +1,8 @@
-"""Pipe output implementation for watch mode."""
+"""
+Author: Uyanide pywang0608@foxmail.com
+Date: 2026-04-10 08:15:17
+Description: Pipe output implementation for watch mode.
+"""
 
 from bisect import bisect_right
 from dataclasses import dataclass
@@ -38,12 +42,14 @@ class PipeOutput(BaseOutput):
         effective_ms = state.position_ms + state.offset_ms
         current_line_idx: int | None
         if entries and effective_ms < entries[0][0]:
-            # Before first timestamp, current lyric is empty and after-window shows upcoming lines.
+            # playback hasn't reached the first lyric yet; treat current slot as empty
+            # so the after-window can show upcoming lines without a "current" anchor
             current_line_idx = None
         else:
             if not entries:
                 current_line_idx = 0
             else:
+                # bisect_right - 1 gives the last entry whose timestamp <= effective_ms
                 current_entry_idx = (
                     bisect_right(state.lyrics.timestamps, effective_ms) - 1
                 )
@@ -54,6 +60,8 @@ class PipeOutput(BaseOutput):
         out: list[str] = []
         for rel in range(-self.before, self.after + 1):
             if current_line_idx is None:
+                # before-first-timestamp: before/current slots are empty; after slots
+                # show lines starting from index 0 (rel=1 → line 0, rel=2 → line 1, …)
                 if rel <= 0:
                     out.append("")
                     continue
@@ -80,5 +88,6 @@ class PipeOutput(BaseOutput):
             lines = self._render_lyrics(state)
 
         for line in lines:
+            # no_newline mode lets callers use \r to overwrite the previous frame in-place
             sys.stdout.write(line + ("\n" if not self.no_newline else ""))
         sys.stdout.flush()
