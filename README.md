@@ -161,7 +161,7 @@ Run tests without network calls:
 uv run pytest -m "not network"
 ```
 
-or run full tests. The **REAL** API calls will be made and some of them will be skipped if the required credentials are not configured as [above](#configuration). This might be useful to verify that the lyric sources are still valid and working as expected:
+or run full tests. The **REAL EXTERNAL** API calls will be made and some of them will be skipped if the required credentials are not configured as [above](#configuration). This might be useful to verify that the lyric sources are still valid and working as expected:
 
 ```bash
 uv run pytest

@@ -23,6 +23,13 @@ _MXM_BASE_PARAMS = {
 }
 
 
+def _new_mxm_client(timeout: float) -> httpx.AsyncClient:
+    """Build Musixmatch client without httpx default User-Agent header."""
+    client = httpx.AsyncClient(timeout=timeout, headers=_MXM_HEADERS)
+    client.headers.pop("User-Agent", None)
+    return client
+
+
 class MusixmatchAuthenticator(BaseAuthenticator):
     def __init__(
         self, cache: CacheEngine, credentials: CredentialConfig, general: GeneralConfig
@@ -79,8 +86,8 @@ class MusixmatchAuthenticator(BaseAuthenticator):
         logger.debug("Musixmatch: fetching anonymous token")
 
         try:
-            async with httpx.AsyncClient(timeout=self._general.http_timeout) as client:
-                resp = await client.get(url, headers=_MXM_HEADERS)
+            async with _new_mxm_client(self._general.http_timeout) as client:
+                resp = await client.get(url)
                 resp.raise_for_status()
                 data = resp.json()
         except Exception as e:
@@ -141,9 +148,9 @@ class MusixmatchAuthenticator(BaseAuthenticator):
             self._set_cooldown()
             return None
 
-        async with httpx.AsyncClient(timeout=self._general.http_timeout) as client:
+        async with _new_mxm_client(self._general.http_timeout) as client:
             url = f"{url_base}?{urlencode({**_MXM_BASE_PARAMS, **params, 'usertoken': token})}"
-            resp = await client.get(url, headers=_MXM_HEADERS)
+            resp = await client.get(url)
 
             if resp.status_code == 401:
                 logger.debug("Musixmatch: 401 received, refreshing token")
@@ -153,7 +160,7 @@ class MusixmatchAuthenticator(BaseAuthenticator):
                     self._set_cooldown()
                     return None
                 url = f"{url_base}?{urlencode({**_MXM_BASE_PARAMS, **params, 'usertoken': token})}"
-                resp = await client.get(url, headers=_MXM_HEADERS)
+                resp = await client.get(url)
 
             resp.raise_for_status()
             return resp.json()
