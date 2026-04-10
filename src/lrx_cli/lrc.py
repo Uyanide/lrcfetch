@@ -4,6 +4,8 @@ Date: 2026-03-25 21:54:01
 Description: LRC parsing, modeling, and serialization helpers.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 import re

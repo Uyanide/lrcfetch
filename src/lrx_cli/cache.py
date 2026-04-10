@@ -5,6 +5,8 @@ Description: SQLite-based lyric cache with per-source slot rows, TTL expiration,
              and schema migrations (confidence versioning + slot migration).
 """
 
+from __future__ import annotations
+
 import json
 import sqlite3
 import hashlib

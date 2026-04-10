@@ -4,6 +4,8 @@ Date: 2026-03-25 02:33:26
 Description: Fetcher pipeline — registry and types.
 """
 
+from __future__ import annotations
+
 from typing import Literal, Optional
 from loguru import logger
 

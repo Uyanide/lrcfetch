@@ -1,5 +1,7 @@
 """Output abstraction types for watch mode rendering."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from bisect import bisect_right
 from dataclasses import dataclass

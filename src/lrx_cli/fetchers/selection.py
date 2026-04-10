@@ -8,6 +8,8 @@ Description: Shared candidate-selection logic for search-based fetchers.
              proximity, and sync status.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Generic, Optional, TypeVar
 

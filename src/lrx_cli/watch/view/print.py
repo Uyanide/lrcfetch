@@ -4,6 +4,8 @@ Date: 2026-04-10 08:15:31
 Description: Print output implementation for watch mode — one shot per track.
 """
 
+from __future__ import annotations
+
 import sys
 
 from . import BaseOutput, WatchState, WatchStatus

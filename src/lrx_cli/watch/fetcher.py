@@ -4,6 +4,9 @@ Date: 2026-04-10 08:14:41
 Description: Debounced lyric fetch orchestration for watch session.
 """
 
+from __future__ import annotations
+
+
 import asyncio
 from typing import Awaitable, Callable, Optional
 

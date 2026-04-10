@@ -5,6 +5,8 @@ Description: Shared text normalization utilities for fuzzy matching.
              Used by cache key generation, cache search, and candidate selection scoring.
 """
 
+from __future__ import annotations
+
 import re
 import unicodedata
 

@@ -8,6 +8,8 @@ Description: Watch orchestration with explicit MVVM role boundaries.
              - Coordinator: WatchCoordinator wires services and drives async workflows.
 """
 
+from __future__ import annotations
+
 import asyncio
 from dataclasses import asdict
 from typing import Optional

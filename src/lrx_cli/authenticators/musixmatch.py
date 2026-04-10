@@ -4,6 +4,8 @@ Date: 2026-04-05 03:27:56
 Description: Musixmatch authenticator — token management, 401 retry, and cooldown.
 """
 
+from __future__ import annotations
+
 import time
 from typing import Optional
 from urllib.parse import urlencode

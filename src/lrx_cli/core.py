@@ -5,6 +5,8 @@ Description: Core orchestrator — coordinates fetchers with cache-aware fallbac
              Also handles enrichers & authenticators & …
 """
 
+from __future__ import annotations
+
 import asyncio
 from typing import Optional
 from loguru import logger

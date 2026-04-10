@@ -7,6 +7,8 @@ Description: Local fetcher — reads lyrics from .lrc sidecar files or embedded 
                2. Embedded lyrics in audio metadata (FLAC, MP3 USLT/SYLT tags)
 """
 
+from __future__ import annotations
+
 from typing import Optional
 from loguru import logger
 from mutagen._file import File

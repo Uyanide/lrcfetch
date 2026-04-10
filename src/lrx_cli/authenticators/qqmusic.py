@@ -4,6 +4,8 @@ Date: 2026-04-05 03:47:30
 Description: QQ Music API authenticator - currently only a proxy.
 """
 
+from __future__ import annotations
+
 from typing import Optional
 import httpx
 from loguru import logger

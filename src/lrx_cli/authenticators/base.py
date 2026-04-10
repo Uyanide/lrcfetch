@@ -4,6 +4,8 @@ Date: 2026-04-05 03:18:14
 Description: Base class for credential authenticators.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from typing import Optional
 

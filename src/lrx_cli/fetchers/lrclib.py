@@ -5,6 +5,8 @@ Description: LRCLIB fetcher — queries lrclib.net for synced/plain lyrics.
              Requires complete track metadata (artist, title, album, duration).
 """
 
+from __future__ import annotations
+
 import httpx
 from loguru import logger
 from urllib.parse import urlencode

@@ -11,6 +11,8 @@ Description: Musixmatch fetchers (desktop API, anonymous or usertoken auth).
              musixmatch          — metadata search + best-candidate fallback
 """
 
+from __future__ import annotations
+
 import json
 from typing import Optional
 from loguru import logger

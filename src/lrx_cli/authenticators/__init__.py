@@ -4,6 +4,8 @@ Date: 2026-04-06 08:21:01
 Description: Credential authenticators for third-party provider APIs
 """
 
+from __future__ import annotations
+
 from lrx_cli.authenticators.qqmusic import QQMusicAuthenticator
 
 from .base import BaseAuthenticator

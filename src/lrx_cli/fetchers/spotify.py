@@ -4,6 +4,8 @@ Date: 2026-03-25 10:43:21
 Description: Spotify fetcher — obtains synced lyrics via Spotify's internal color-lyrics API.
 """
 
+from __future__ import annotations
+
 from loguru import logger
 
 from .base import BaseFetcher, FetchResult

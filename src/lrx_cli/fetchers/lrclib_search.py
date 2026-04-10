@@ -5,6 +5,8 @@ Description: LRCLIB search fetcher — fuzzy search via lrclib.net /api/search.
              Used when metadata is incomplete (no album or duration) but title is available.
 """
 
+from __future__ import annotations
+
 import asyncio
 import httpx
 from loguru import logger

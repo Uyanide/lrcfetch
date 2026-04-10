@@ -7,6 +7,8 @@ Description: Netease Cloud Music fetcher.
              retrieving lyrics. No authentication required.
 """
 
+from __future__ import annotations
+
 import asyncio
 import httpx
 from loguru import logger

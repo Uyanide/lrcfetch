@@ -4,6 +4,8 @@ Date: 2026-04-10 08:15:17
 Description: Pipe output implementation for watch mode.
 """
 
+from __future__ import annotations
+
 from bisect import bisect_right
 from dataclasses import dataclass
 import sys

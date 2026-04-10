@@ -4,6 +4,9 @@ Date: 2026-04-10 08:14:58
 Description: Unix-socket control channel for communicating with a running watch session.
 """
 
+from __future__ import annotations
+
+
 import asyncio
 import json
 from pathlib import Path

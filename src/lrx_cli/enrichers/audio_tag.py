@@ -4,6 +4,8 @@ Date: 2026-03-31 06:11:27
 Description: Enricher that reads metadata from audio file tags.
 """
 
+from __future__ import annotations
+
 from typing import Optional
 from loguru import logger
 from mutagen._file import File, FileType

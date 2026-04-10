@@ -4,6 +4,9 @@ Date: 2026-04-10 08:13:35
 Description: Playback position tracking utilities for watch mode.
 """
 
+from __future__ import annotations
+
+
 import asyncio
 import time
 from typing import Awaitable, Callable, Optional

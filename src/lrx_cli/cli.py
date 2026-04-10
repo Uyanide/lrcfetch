@@ -4,6 +4,8 @@ Date: 2026-03-26 02:04:39
 Description: CLI interface.
 """
 
+from __future__ import annotations
+
 import sys
 import time
 import os

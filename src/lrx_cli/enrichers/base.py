@@ -4,6 +4,8 @@ Date: 2026-03-31 06:08:16
 Description: Base class for metadata enrichers.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from typing import Optional
 

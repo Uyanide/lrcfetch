@@ -4,6 +4,8 @@ Date: 2026-03-31 06:09:11
 Description: Metadata enrichment pipeline
 """
 
+from __future__ import annotations
+
 from loguru import logger
 
 from .base import BaseEnricher

@@ -4,6 +4,8 @@ Date: 2026-03-25 04:44:15
 Description: MPRIS integration for fetching track metadata.
 """
 
+from __future__ import annotations
+
 import asyncio
 from dbus_next.aio.message_bus import MessageBus
 from dbus_next.constants import BusType

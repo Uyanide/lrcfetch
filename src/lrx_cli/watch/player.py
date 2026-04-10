@@ -4,6 +4,9 @@ Date: 2026-04-10 08:14:27
 Description: Player discovery, state monitoring, and active-player selection for watch mode.
 """
 
+from __future__ import annotations
+
+
 from dataclasses import dataclass
 from typing import Callable, Optional
 import asyncio

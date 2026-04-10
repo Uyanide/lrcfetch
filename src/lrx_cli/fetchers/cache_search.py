@@ -8,9 +8,10 @@ Description: Cache-search fetcher — cross-album fuzzy lookup in the local cach
              albums or is played from different players.
 """
 
+from __future__ import annotations
+
 from typing import Optional
 from loguru import logger
-
 
 from .base import BaseFetcher, FetchResult
 from .selection import SearchCandidate, select_best

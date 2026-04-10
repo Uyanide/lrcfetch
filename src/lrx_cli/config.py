@@ -4,6 +4,8 @@ Date: 2026-03-25 10:17:56
 Description: Global configuration constants, typed config dataclasses, and logger setup.
 """
 
+from __future__ import annotations
+
 import dataclasses
 import os
 import sys

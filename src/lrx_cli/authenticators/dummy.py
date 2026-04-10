@@ -4,6 +4,8 @@ Date: 2026-04-05 03:36:44
 Description: A dummy authenticator that does nothing and always reports as configured.
 """
 
+from __future__ import annotations
+
 from .base import BaseAuthenticator
 
 

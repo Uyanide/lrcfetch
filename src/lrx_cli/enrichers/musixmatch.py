@@ -4,8 +4,9 @@ Date: 2026-04-05 02:13:49
 Description: Musixmatch metadata enricher (matcher.track.get by Spotify track ID).
 """
 
-from typing import Optional
+from __future__ import annotations
 
+from typing import Optional
 from loguru import logger
 
 from .base import BaseEnricher

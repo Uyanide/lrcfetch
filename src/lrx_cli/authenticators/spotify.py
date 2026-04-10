@@ -4,6 +4,8 @@ Date: 2026-04-05 03:18:14
 Description: Spotify authenticator — TOTP-based access token via SP_DC cookie.
 """
 
+from __future__ import annotations
+
 import hashlib
 import hmac
 import struct

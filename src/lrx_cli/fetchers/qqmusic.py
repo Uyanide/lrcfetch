@@ -9,6 +9,8 @@ Description: QQ Music fetcher via self-hosted API proxy.
              Search → pick best match → fetch LRC lyrics.
 """
 
+from __future__ import annotations
+
 import asyncio
 from loguru import logger
 

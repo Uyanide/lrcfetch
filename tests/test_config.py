@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 from lrx_cli.config import AppConfig, CredentialConfig, WatchConfig, load_config

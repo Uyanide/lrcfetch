@@ -4,6 +4,8 @@ Date: 2026-03-31 06:08:44
 Description: Enricher that parses metadata from the audio file path.
 """
 
+from __future__ import annotations
+
 import re
 from typing import Optional
 from loguru import logger
