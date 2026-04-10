@@ -78,12 +78,11 @@ class PositionTracker:
             if player_changed or track_changed:
                 # reset to 0 so stale position from a previous track doesn't bleed through
                 self._position_ms = 0
-            # only poll MPRIS when something changed and the player is actually running;
-            # avoids an unnecessary D-Bus round-trip on every calibration-loop tick
-            should_calibrate_now = (
-                self._is_playing
-                and bool(self._active_player)
-                and (player_changed or track_changed or status_changed_to_playing)
+            # poll MPRIS on any identity change (player, track, or resume) so a paused
+            # mid-song player gets its position anchored immediately; calibration-loop
+            # ticks are excluded because they pass the same player/track/status
+            should_calibrate_now = bool(self._active_player) and (
+                player_changed or track_changed or status_changed_to_playing
             )
             self._track_key = track_key
             self._last_tick = time.monotonic()

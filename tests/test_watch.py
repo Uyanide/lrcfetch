@@ -149,6 +149,20 @@ def test_position_tracker_resume_via_playback_status_calibrates() -> None:
     asyncio.run(_run())
 
 
+def test_position_tracker_paused_start_calibrates_initial_position() -> None:
+    """set_active_player with Paused must still calibrate position — player may be mid-song."""
+
+    async def _run() -> None:
+        tracker = PositionTracker(lambda _: asyncio.sleep(0, result=45000), TEST_CONFIG)
+        await tracker.start()
+        await tracker.set_active_player(BUS, "Paused", "track-A")
+        pos = await tracker.get_position_ms()
+        await tracker.stop()
+        assert pos >= 45000
+
+    asyncio.run(_run())
+
+
 def test_position_tracker_resume_via_set_active_player_calibrates() -> None:
     async def _run() -> None:
         tracker = PositionTracker(lambda _: asyncio.sleep(0, result=42000), TEST_CONFIG)
@@ -454,6 +468,66 @@ def test_coordinator_fetches_while_paused() -> None:
         session._on_player_change()
         await asyncio.sleep(0)
         assert fetcher.requested == ["Artist - Song"]
+
+    asyncio.run(_run())
+
+
+def test_coordinator_paused_start_emits_correct_line_after_fetch() -> None:
+    """After fetch completes with a mid-song paused player, the current lyric line must render."""
+
+    async def _run() -> None:
+        received: list[WatchState] = []
+
+        class _CaptureOutput(BaseOutput):
+            position_sensitive = True
+
+            async def on_state(self, state: WatchState) -> None:
+                received.append(state)
+
+        class _Manager:
+            def fetch_for_track(self, *_a, **_kw):
+                return None
+
+        PAUSED_MS = 45000
+        lrc = LRCData("[00:43.00]a\n[00:44.00]b\n[00:46.00]c")
+
+        session = WatchCoordinator(
+            _Manager(),  # type: ignore
+            _CaptureOutput(),
+            player_hint=None,
+            config=TEST_CONFIG,
+        )
+        session._tracker = PositionTracker(
+            lambda _bus: asyncio.sleep(0, result=PAUSED_MS),
+            TEST_CONFIG,
+        )
+        await session._tracker.start()
+
+        # Calibrate tracker directly (tracker-level behavior already covered by
+        # test_position_tracker_paused_start_calibrates_initial_position)
+        await session._tracker.set_active_player(BUS, "Paused", "Artist - Song")
+
+        # Put model in the state _on_player_change would have produced
+        session._model.active_player = BUS
+        session._model.active_track_key = "Artist - Song"
+        session._model.status = WatchStatus.FETCHING
+        session._player_monitor.players = {BUS: _pstate("Paused")}
+        session._last_emit_signature = (
+            "status",
+            WatchStatus.FETCHING,
+            BUS,
+            "Artist - Song",
+        )
+
+        await session._on_lyrics_update(lrc)
+
+        last_ok = next(
+            (s for s in reversed(received) if s.status == WatchStatus.OK), None
+        )
+        assert last_ok is not None, "no OK state emitted after lyrics loaded"
+        assert last_ok.position_ms >= PAUSED_MS
+
+        await session._tracker.stop()
 
     asyncio.run(_run())
 
