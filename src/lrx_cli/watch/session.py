@@ -17,7 +17,7 @@ from ..models import TrackMeta
 from .control import ControlServer
 from .fetcher import LyricFetcher
 from ..config import AppConfig
-from .view import BaseOutput, LyricView, WatchState
+from .view import BaseOutput, LyricView, WatchState, WatchStatus
 from .player import ActivePlayerSelector, PlayerMonitor, PlayerTarget
 from .tracker import PositionTracker
 
@@ -28,14 +28,14 @@ class WatchModel:
     offset_ms: int
     active_player: str | None
     active_track_key: str | None
-    status: str
+    status: WatchStatus
     lyrics: LyricView | None
 
     def __init__(self) -> None:
         self.offset_ms = 0
         self.active_player: str | None = None
         self.active_track_key: str | None = None
-        self.status: str = "idle"
+        self.status: WatchStatus = WatchStatus.IDLE
         self.lyrics: LyricView | None = None
 
     def set_lyrics(self, lyrics: LRCData | None) -> None:
@@ -56,7 +56,7 @@ class WatchModel:
             else None
         )
 
-        if self.status != "ok" or self.lyrics is None:
+        if self.status != WatchStatus.OK or self.lyrics is None:
             return ("status", self.status, self.active_player, track_key)
         at_ms = position_ms + self.offset_ms
         cursor = self.lyrics.signature_cursor(at_ms)
@@ -82,7 +82,7 @@ class WatchViewModel:
             lyrics=self._model.lyrics,
             position_ms=position_ms,
             offset_ms=self._model.offset_ms,
-            status=self._model.status,  # type: ignore[arg-type]
+            status=self._model.status,
         )
 
 
@@ -207,7 +207,7 @@ class WatchCoordinator:
             return False
         if self._model.lyrics is not None:
             return False
-        if self._model.status == "fetching":
+        if self._model.status == WatchStatus.FETCHING:
             return False
         logger.info("fetching lyrics for track ({}): {}", reason, track.display_name())
         self._fetcher.request(track)
@@ -246,7 +246,7 @@ class WatchCoordinator:
             )
 
         if selected is None:
-            self._model.status = "idle"
+            self._model.status = WatchStatus.IDLE
             self._model.active_track_key = None
             self._model.set_lyrics(None)
             self._schedule_emit()
@@ -254,7 +254,7 @@ class WatchCoordinator:
 
         state = self._player_monitor.players.get(selected)
         if state is None:
-            self._model.status = "idle"
+            self._model.status = WatchStatus.IDLE
             self._model.active_track_key = None
             self._model.set_lyrics(None)
             self._schedule_emit()
@@ -284,27 +284,16 @@ class WatchCoordinator:
             )
         )
 
-        if state.status != "Playing":
-            self._model.status = "paused"
-            self._schedule_emit()
-            return
-
         started_fetch = False
         if track is not None and (player_changed or track_changed):
             started_fetch = self._request_fetch_for_active_track("track-changed")
-        elif (
-            track is not None
-            and self._model.lyrics is None
-            and self._model.status == "paused"
-        ):
-            started_fetch = self._request_fetch_for_active_track("resume-playing")
 
         if self._model.lyrics is not None:
-            self._model.status = "ok"
+            self._model.status = WatchStatus.OK
         elif started_fetch:
-            self._model.status = "fetching"
-        elif self._model.status != "fetching":
-            self._model.status = "no_lyrics"
+            self._model.status = WatchStatus.FETCHING
+        elif self._model.status != WatchStatus.FETCHING:
+            self._model.status = WatchStatus.NO_LYRICS
         self._schedule_emit()
 
     def _on_seeked(self, bus_name: str, position_ms: int) -> None:
@@ -312,24 +301,12 @@ class WatchCoordinator:
         asyncio.create_task(self._tracker.on_seeked(bus_name, position_ms))
 
     def _on_playback_status(self, bus_name: str, status: str) -> None:
-        """React to playback status change and tracker sync."""
-        if bus_name == self._model.active_player:
-            if status == "Playing":
-                started_fetch = self._request_fetch_for_active_track("resume-playing")
-                if self._model.lyrics is not None:
-                    self._model.status = "ok"
-                elif started_fetch:
-                    self._model.status = "fetching"
-                elif self._model.status != "fetching":
-                    self._model.status = "no_lyrics"
-            else:
-                self._model.status = "paused"
-            self._schedule_emit()
+        """Forward playback status change to position tracker."""
         asyncio.create_task(self._tracker.on_playback_status(bus_name, status))
 
     def _on_tracker_tick(self) -> None:
         """Emit updates from tracker tick only while lyrics are actively rendering."""
-        if self._model.status == "ok":
+        if self._model.status == WatchStatus.OK:
             self._schedule_emit()
 
     def _schedule_emit(self) -> None:
@@ -348,13 +325,15 @@ class WatchCoordinator:
 
     async def _on_fetching(self) -> None:
         """Mark model as fetching and emit state."""
-        self._model.status = "fetching"
+        self._model.status = WatchStatus.FETCHING
         await self._emit_state()
 
     async def _on_lyrics_update(self, lyrics: Optional[LRCData]) -> None:
         """Update model with fetched lyrics and emit state."""
         self._model.set_lyrics(lyrics)
-        self._model.status = "ok" if lyrics is not None else "no_lyrics"
+        self._model.status = (
+            WatchStatus.OK if lyrics is not None else WatchStatus.NO_LYRICS
+        )
         logger.info(
             "lyrics update result: {}",
             "found" if lyrics is not None else "not found",

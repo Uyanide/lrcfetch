@@ -3,10 +3,18 @@
 from abc import ABC, abstractmethod
 from bisect import bisect_right
 from dataclasses import dataclass
-from typing import Literal, Optional
+from enum import Enum
+from typing import Optional
 
 from ...lrc import LRCData, LyricLine
 from ...models import TrackMeta
+
+
+class WatchStatus(str, Enum):
+    IDLE = "idle"
+    FETCHING = "fetching"
+    OK = "ok"
+    NO_LYRICS = "no_lyrics"
 
 
 @dataclass(slots=True, frozen=True)
@@ -70,7 +78,7 @@ class WatchState:
     lyrics: Optional[LyricView]
     position_ms: int
     offset_ms: int
-    status: Literal["fetching", "ok", "no_lyrics", "paused", "idle"]
+    status: WatchStatus
 
 
 class BaseOutput(ABC):

@@ -4,7 +4,7 @@ from bisect import bisect_right
 from dataclasses import dataclass
 import sys
 
-from . import BaseOutput, WatchState
+from . import BaseOutput, WatchState, WatchStatus
 
 
 @dataclass(slots=True)
@@ -70,13 +70,11 @@ class PipeOutput(BaseOutput):
 
     async def on_state(self, state: WatchState) -> None:
         """Render and flush one frame for the latest watch state."""
-        if state.status == "fetching":
+        if state.status == WatchStatus.FETCHING:
             lines = self._render_status("[fetching...]")
-        elif state.status == "no_lyrics":
+        elif state.status == WatchStatus.NO_LYRICS:
             lines = self._render_status("[no lyrics]")
-        elif state.status == "paused":
-            lines = self._render_status("[paused]")
-        elif state.status == "idle":
+        elif state.status == WatchStatus.IDLE:
             lines = self._render_status("[idle]")
         else:
             lines = self._render_lyrics(state)

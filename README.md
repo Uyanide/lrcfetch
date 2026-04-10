@@ -143,8 +143,8 @@ socket_path             = ""        # Unix socket path; defaults to <cache_dir>/
 Clone this repository:
 
 ```bash
-git clone https://github.com/Uyanide/LRX-CLI.git
-cd LRX-CLI
+git clone https://github.com/Uyanide/lrx-cli.git
+cd lrx-cli
 ```
 
 Create a virtual environment and install dependencies (for example, using uv):
