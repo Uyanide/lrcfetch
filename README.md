@@ -30,11 +30,8 @@ highest-confidence result wins.
 7. **Musixmatch** — Musixmatch API with metadata search (requires at least a title)
 8. **Netease** — Netease Cloud Music public API
 9. **QQ Music** — QQ Music via self-hosted API proxy
-   (requires `credentials.qq_music_api_url`; compatible with [tooplick/qq-music-api](https://github.com/tooplick/qq-music-api))
-
-> I'm aware that Spotify's lyrics are provided by Musixmatch, but the fact is
-> that Musixmatch's own search will yield different (and more) results than
-> Spotify's, so I treat them as separate sources.
+   (requires `credentials.qq_music_api_url` providing APIs compatible
+   with [tooplick/qq-music-api](https://github.com/tooplick/qq-music-api))
 
 ## Usage
 
